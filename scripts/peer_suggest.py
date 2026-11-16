@@ -4,7 +4,7 @@
 
 For each runner: GET /api/today?person=X (the site builds the prompt from their plan and logged sessions),
 run `claude -p` on it with no tools from an empty directory (so no CLAUDE.md, and so nothing about WGW, is
-loaded), validate the JSON, and append an upsert into `suggestions` with by:"claude". Later the same day the
+loaded), validate the JSON, add a Chinese copy (`zh`, a second Claude call), and append an upsert into `suggestions` with by:"claude". Later the same day the
 site only rewrites it (with Mistral) if new sessions are logged.
 Set RUNCLUB_PASSCODE if the site has a PASSCODE.
 """
@@ -32,6 +32,33 @@ def fetch(person, today):
                                           "user-agent": "run-club-daily"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.load(r)
+
+
+TRANSLATE = """Translate the string values of this JSON from English into natural Simplified Chinese, as a running
+coach would say it to a Chinese-speaking runner. Keep every number, pace (m:ss), time, unit (km, bpm, spm, /km, %, ms,
+cm, W) and abbreviation (VDOT, HR, E/M/T/I/R paces, TT, RDL) exactly as written. Keep the same keys and list lengths.
+Reply with ONLY the JSON object.
+
+"""
+ZH_KEYS = ["headline", "session", "why", "next", "yesterday", "science", "form", "numbers", "prehab"]
+
+
+def translate(s):
+    """Chinese copy of the card's text fields ({} if Claude's reply is unusable)."""
+    src = {k: s[k] for k in ZH_KEYS if s.get(k)}
+    try:
+        zh = ask_claude(TRANSLATE + json.dumps(src, ensure_ascii=False, indent=1))
+    except Exception as e:
+        print(f"    translation failed: {e}", file=sys.stderr)
+        return {}
+    out = {}
+    for k, v in src.items():
+        z = zh.get(k)
+        if isinstance(v, str) and isinstance(z, str) and z.strip():
+            out[k] = z.strip()[: max(len(v) * 2, 60)]
+        elif isinstance(v, list) and isinstance(z, list) and len(z) == len(v) and all(isinstance(x, str) for x in z):
+            out[k] = z
+    return out
 
 
 def ask_claude(prompt):
@@ -80,11 +107,14 @@ def main():
             if ctx.get("prehab"):
                 s["prehab"] = ctx["prehab"]
             s["by"] = "claude"
+            zh = translate(s)
+            if zh:
+                s["zh"] = zh
             sql.append(
                 "INSERT INTO suggestions (person, date, data, data_at, created_at) VALUES "
                 f"({q(person)}, {q(today)}, {q(json.dumps(s, ensure_ascii=False))}, {q(ctx.get('dataAt'))}, {q(now)}) "
                 "ON CONFLICT(person, date) DO UPDATE SET data=excluded.data, data_at=excluded.data_at, created_at=excluded.created_at;")
-            print(f"  {person}: {s['call']}: {s['headline']}")
+            print(f"  {person}: {s['call']}: {s['headline']}" + (f" / {s['zh'].get('headline', '')}" if s.get("zh") else ""))
         except Exception as e:  # one runner failing shouldn't stop the other
             print(f"  {person}: FAILED: {e}", file=sys.stderr)
     with open(out_path, "w") as f:

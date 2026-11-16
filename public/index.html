@@ -11,10 +11,23 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <title>Run Club</title>
+<script>/* theme before first paint (the ⚙ setting; auto follows the system) */
+try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";document.documentElement.dataset.theme=t}catch(e){}</script>
 <style>
   :root{
     --bg:#0f1115; --card:#181b22; --card2:#1f232c; --line:#262a33; --text:#e8eaee; --mute:#9aa1ad;
     --ok:#3fb97a; --accent:#e8eaee;
+    --hdr:rgba(15,17,21,.92); --box:#4a505c; --strike:rgba(255,255,255,.35); --toast:#2a2f3a;
+    --vio-bg:#2b2540; --vio-fg:#d9c8ff; --miss:#5a2a26;
+    color-scheme:dark;
+  }
+  /* Light theme: data-theme is set by i18n.js from the ⚙ setting (auto follows the system). */
+  :root[data-theme="light"]{
+    --bg:#f4f5f7; --card:#ffffff; --card2:#eceef2; --line:#dde1e7; --text:#15181e; --mute:#5d6572;
+    --ok:#2f9e66; --accent:#15181e;
+    --hdr:rgba(244,245,247,.92); --box:#b5bcc7; --strike:rgba(0,0,0,.35); --toast:#ffffff;
+    --vio-bg:#ece6fb; --vio-fg:#5a3fb0; --miss:#f0c2bb;
+    color-scheme:light;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;background:var(--bg);color:var(--text)}
@@ -24,7 +37,7 @@
   .wrap{max-width:480px;margin:0 auto;padding:0 16px}
 
   /* Header */
-  header{position:sticky;top:0;z-index:5;background:rgba(15,17,21,.92);backdrop-filter:blur(10px);
+  header{position:sticky;top:0;z-index:5;background:var(--hdr);backdrop-filter:blur(10px);
     -webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
   .bar1{display:flex;align-items:center;justify-content:space-between;padding:10px 0 8px}
   .brand{font-weight:800;font-size:18px;letter-spacing:-.2px}
@@ -63,12 +76,12 @@
   .run .kind{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;font-weight:700}
   .run .title{font-size:15px;font-weight:700}
   .run .meta{color:var(--mute);font-size:12.5px;margin-top:1px;font-variant-numeric:tabular-nums}
-  .box{flex:0 0 28px;height:28px;border:2px solid #4a505c;border-radius:8px;display:flex;align-items:center;justify-content:center}
+  .box{flex:0 0 28px;height:28px;border:2px solid var(--box);border-radius:8px;display:flex;align-items:center;justify-content:center}
   .box svg{width:16px;height:16px;opacity:0}
   .run.done{opacity:.55}
   .run.done .box{background:var(--ok);border-color:var(--ok)}
   .run.done .box svg{opacity:1}
-  .run.done .title{text-decoration:line-through;text-decoration-color:rgba(255,255,255,.35)}
+  .run.done .title{text-decoration:line-through;text-decoration-color:var(--strike)}
   .run.missed{opacity:.5;border-style:dashed}
   .run.missed .title,.run.missed .meta{text-decoration:line-through;text-decoration-color:#e5604d;text-decoration-thickness:2px}
   .run .mtag{margin-left:8px;color:#e5604d;letter-spacing:.5px}
@@ -101,7 +114,7 @@
   .pip{min-width:34px;height:26px;padding:0 6px;border-radius:7px;border:1px solid var(--line);background:var(--card2);
     font-size:11px;font-weight:700;color:var(--mute);display:flex;align-items:center;justify-content:center}
   .pip.done{background:var(--ok);border-color:var(--ok);color:#0f1115}
-  .pip.miss{border-color:#5a2a26;color:#e5604d}
+  .pip.miss{border-color:var(--miss);color:#e5604d}
   .pip.next{border-color:var(--c);color:var(--text)}
 
   table.hist{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0 6px;font-variant-numeric:tabular-nums}
@@ -169,7 +182,7 @@
   .sheet input{width:100%;height:46px;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:0 12px;font-size:16px}
   .sheet button{margin-top:10px;width:100%;height:46px;border-radius:11px;background:var(--ok);color:#0f1115;font-weight:800}
   .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
-    background:#2a2f3a;border:1px solid var(--line);padding:10px 14px;border-radius:12px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;z-index:30}
+    background:var(--toast);border:1px solid var(--line);padding:10px 14px;border-radius:12px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;z-index:30}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
   /* Logged details on a card */
@@ -193,7 +206,7 @@
   .sheet textarea{width:100%;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:10px 12px;font:inherit;font-size:16px;resize:vertical}
   .sheet label.full{margin-top:10px}
   #photoBox{margin-top:12px}
-  .addphoto{display:flex !important;align-items:center;justify-content:center;height:52px;border:1px dashed #3a404c;border-radius:12px;
+  .addphoto{display:flex !important;align-items:center;justify-content:center;height:52px;border:1px dashed var(--box);border-radius:12px;
     color:var(--text) !important;font-size:14px !important;cursor:pointer}
   .thumb{border-radius:12px;overflow:hidden;background:var(--bg);border:1px solid var(--line)}
   .thumb img{display:block;width:100%;max-height:300px;object-fit:contain}
@@ -201,7 +214,7 @@
   .photobtns{display:grid;grid-template-columns:2fr 1fr;gap:8px}
   .sheet button.ghost{background:var(--card2);color:var(--text);font-weight:600}
   .photobtns button{height:42px;margin-top:8px;font-size:14px}
-  .photobtns button:first-child{background:#2b2540;color:#d9c8ff;font-weight:700}
+  .photobtns button:first-child{background:var(--vio-bg);color:var(--vio-fg);font-weight:700}
   .actions{display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:14px}
   .actions button{margin-top:0}
   .sheet button:disabled{opacity:.6}
@@ -228,10 +241,18 @@
   .xmore summary::-webkit-details-marker{display:none}
   .xmore summary::after{content:"▾";color:var(--mute);margin-left:8px}
   .xmore[open] summary::after{content:"▴"}
-  .xmore summary span{margin-left:auto;font-size:12px;font-weight:500;color:var(--mute)}
+  .xmore summary #aExtraN{margin-left:auto;font-size:12px;font-weight:500;color:var(--mute)}
   .xmore .xhint{margin:0 0 10px;font-size:12px;color:var(--mute)}
   .xmore .fgrid{padding-bottom:12px}
   .fgrid .span2{grid-column:1/-1}
+  .sheet label b{font-weight:inherit}
+  /* Settings */
+  .gear{font-size:17px !important;margin-left:4px}
+  .setrow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px solid var(--line);font-weight:600}
+  .seg{display:flex;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
+  .sheet .seg button{margin:0;width:auto;height:34px;padding:0 14px;border-radius:8px;background:transparent;color:var(--mute);font-weight:600;font-size:14px}
+  .sheet .seg button[aria-pressed="true"]{background:var(--card);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+  .toast{color:var(--text)}
 </style>
 </head>
 <body>
@@ -240,9 +261,10 @@
     <div class="bar1">
       <div class="brand">🏃 Run Club</div>
       <div class="weeknav">
-        <button id="prev" aria-label="Previous week">‹</button>
-        <button id="weekLabel" aria-label="Jump to this week"></button>
-        <button id="next" aria-label="Next week">›</button>
+        <button id="prev" data-i18n-aria="Previous week" aria-label="Previous week">‹</button>
+        <button id="weekLabel" data-i18n-aria="Jump to this week" aria-label="Jump to this week"></button>
+        <button id="next" data-i18n-aria="Next week ›" aria-label="Next week">›</button>
+        <button id="gear" class="gear" data-i18n-aria="Settings" aria-label="Settings">⚙︎</button>
       </div>
     </div>
     <nav class="tabs" id="tabs" role="tablist"></nav>
@@ -254,11 +276,21 @@
 
 <div class="modal" id="lock">
   <form class="sheet" id="lockForm">
-    <h2>Passcode</h2>
-    <p>Ask the group for the Run Club passcode. You only need to enter it once per device.</p>
-    <input id="lockInput" type="password" autocomplete="current-password" inputmode="text" placeholder="Passcode">
-    <button type="submit">Unlock</button>
+    <h2 data-i18n="Passcode">Passcode</h2>
+    <p data-i18n="Ask the group for the Run Club passcode. You only need to enter it once per device.">Ask the group for the Run Club passcode. You only need to enter it once per device.</p>
+    <input id="lockInput" type="password" autocomplete="current-password" inputmode="text" placeholder="Passcode" data-i18n-ph="Passcode">
+    <button type="submit" data-i18n="Unlock">Unlock</button>
   </form>
+</div>
+<div class="modal bottom" id="setSheet">
+  <div class="sheet log">
+    <div class="lhead"><div><h2 data-i18n="Settings">Settings</h2></div>
+      <button type="button" class="x" id="setClose" data-i18n-aria="Done" aria-label="Done">✕</button></div>
+    <div class="setrow"><span data-i18n="Language">Language</span>
+      <div class="seg" id="segLang"><button data-v="en">EN</button><button data-v="zh">中文</button></div></div>
+    <div class="setrow"><span data-i18n="Theme">Theme</span>
+      <div class="seg" id="segTheme"><button data-v="auto" data-i18n="Auto">Auto</button><button data-v="light" data-i18n="Light">Light</button><button data-v="dark" data-i18n="Dark">Dark</button></div></div>
+  </div>
 </div>
 <div class="modal bottom" id="logSheet">
   <form class="sheet log" id="logForm" autocomplete="off">
@@ -267,48 +299,48 @@
       <button type="button" class="x" id="logClose" aria-label="Close">✕</button>
     </div>
     <div class="fgrid">
-      <label>Distance <span>km</span><input id="fKm" inputmode="decimal" placeholder="5.5"></label>
-      <label>Time <span>h:mm:ss</span><input id="fTime" inputmode="numeric" placeholder="32:10"></label>
-      <label>Avg pace <span>/km</span><input id="fPace" inputmode="numeric" placeholder="auto"></label>
-      <label>Avg HR <span>bpm</span><input id="fHr" inputmode="numeric" placeholder="148"></label>
+      <label><b data-i18n="Distance">Distance</b> <span>km</span><input id="fKm" inputmode="decimal" placeholder="5.5"></label>
+      <label><b data-i18n="Time">Time</b> <span>h:mm:ss</span><input id="fTime" inputmode="numeric" placeholder="32:10"></label>
+      <label><b data-i18n="Avg pace">Avg pace</b> <span>/km</span><input id="fPace" inputmode="numeric" placeholder="auto"></label>
+      <label><b data-i18n="Avg HR">Avg HR</b> <span>bpm</span><input id="fHr" inputmode="numeric" placeholder="148"></label>
     </div>
-    <label class="full">Note<textarea id="fNote" rows="2" placeholder="How did it feel?"></textarea></label>
+    <label class="full"><b data-i18n="Note">Note</b><textarea id="fNote" rows="2" placeholder="How did it feel?" data-i18n-ph="How did it feel?"></textarea></label>
     <div id="photoBox"></div>
     <div class="actions">
-      <button type="button" class="ghost" id="logUndo">Un-tick</button>
-      <button type="submit" class="primary">Save</button>
+      <button type="button" class="ghost" id="logUndo" data-i18n="Un-tick">Un-tick</button>
+      <button type="submit" class="primary" data-i18n="Save">Save</button>
     </div>
   </form>
 </div>
 <div class="modal bottom" id="actSheet">
   <form class="sheet log" id="actForm" autocomplete="off">
     <div class="lhead">
-      <div><div class="lkind" id="actKind"></div><h2>Activity</h2></div>
+      <div><div class="lkind" id="actKind"></div><h2 data-i18n="Activity">Activity</h2></div>
       <button type="button" class="x" id="actClose" aria-label="Close">✕</button>
     </div>
     <div class="fgrid">
-      <label>Date<input id="aDate" type="date" required></label>
-      <label>Type<select id="aType">
-        <option value="run">Run</option><option value="gym">Gym</option><option value="swim">Swim</option>
-        <option value="bike">Bike</option><option value="hike">Hike / walk</option><option value="other">Other</option></select></label>
+      <label><b data-i18n="Date">Date</b><input id="aDate" type="date" required></label>
+      <label><b data-i18n="Type">Type</b><select id="aType">
+        <option value="run" data-i18n="Run">Run</option><option value="gym" data-i18n="Gym">Gym</option><option value="swim" data-i18n="Swim">Swim</option>
+        <option value="bike" data-i18n="Bike">Bike</option><option value="hike" data-i18n="Hike / walk">Hike / walk</option><option value="other" data-i18n="Other">Other</option></select></label>
     </div>
-    <label class="full">Title <span>optional</span><input id="aTitle" placeholder="Easy run" maxlength="80"></label>
+    <label class="full"><b data-i18n="Title">Title</b> <span data-i18n="optional">optional</span><input id="aTitle" placeholder="Easy run" maxlength="80"></label>
     <div class="fgrid" style="margin-top:10px">
-      <label>Distance <span>km</span><input id="aKm" inputmode="decimal" placeholder="5.0"></label>
-      <label>Time <span>h:mm:ss</span><input id="aTime" inputmode="numeric" placeholder="32:10"></label>
-      <label>Avg pace <span>/km</span><input id="aPace" inputmode="numeric" placeholder="auto"></label>
-      <label>Avg HR <span>bpm</span><input id="aHr" inputmode="numeric" placeholder="148"></label>
-      <label>Cadence <span>spm</span><input id="aCad" inputmode="numeric" placeholder="170"></label>
+      <label><b data-i18n="Distance">Distance</b> <span>km</span><input id="aKm" inputmode="decimal" placeholder="5.0"></label>
+      <label><b data-i18n="Time">Time</b> <span>h:mm:ss</span><input id="aTime" inputmode="numeric" placeholder="32:10"></label>
+      <label><b data-i18n="Avg pace">Avg pace</b> <span>/km</span><input id="aPace" inputmode="numeric" placeholder="auto"></label>
+      <label><b data-i18n="Avg HR">Avg HR</b> <span>bpm</span><input id="aHr" inputmode="numeric" placeholder="148"></label>
+      <label><b data-i18n="Cadence">Cadence</b> <span>spm</span><input id="aCad" inputmode="numeric" placeholder="170"></label>
     </div>
-    <details class="xmore" id="aMore"><summary>Additional <span id="aExtraN">optional</span></summary>
-      <p class="xhint">Running form and other watch details. They make the daily suggestion more specific.</p>
+    <details class="xmore" id="aMore"><summary><span data-i18n="Additional">Additional</span> <span id="aExtraN">optional</span></summary>
+      <p class="xhint" data-i18n="Running form and other watch details. They make the daily suggestion more specific.">Running form and other watch details. They make the daily suggestion more specific.</p>
       <div class="fgrid" id="aExtra"></div>
     </details>
-    <label class="full">Note<textarea id="aNote" rows="2" placeholder="How did it feel? Splits, weather…"></textarea></label>
-    <label class="addphoto" id="aShotLabel"><input type="file" accept="image/*" id="aShot" hidden>📷 Fill from a watch screenshot</label>
+    <label class="full"><b data-i18n="Note">Note</b><textarea id="aNote" rows="2" placeholder="How did it feel? Splits, weather…" data-i18n-ph="How did it feel? Splits, weather…"></textarea></label>
+    <label class="addphoto" id="aShotLabel"><input type="file" accept="image/*" id="aShot" hidden><span id="aShotText" data-i18n="📷 Fill from a watch screenshot">📷 Fill from a watch screenshot</span></label>
     <div class="actions">
-      <button type="button" class="ghost" id="aDelete">Delete</button>
-      <button type="submit" class="primary">Save</button>
+      <button type="button" class="ghost" id="aDelete" data-i18n="Delete">Delete</button>
+      <button type="submit" class="primary" data-i18n="Save">Save</button>
     </div>
   </form>
 </div>

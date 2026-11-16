@@ -6,3 +6,5 @@ node_modules/
 # Personal data: runners' history loaded from chat, and WGW's generated Garmin summary (deployed, not versioned).
 seed/
 public/wgw.json
+__pycache__/
+*.pyc

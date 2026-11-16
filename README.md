@@ -71,6 +71,10 @@ npm run dev            # http://localhost:8788  (PASSCODE / MISTRAL_API_KEY from
 - **WGW**: same 3 sessions every week.
 - **SJH**: add next week's block to `SJH_WEEKS` in `plans.js`, then `npm run deploy`.
 - Deep links: `/?tab=board`, `/?tab=SJH&week=2026-11-16`.
+- **⚙ Settings** (per device): language EN / 中文 and theme Auto / Light / Dark. UI strings live in
+  `public/i18n.js` (keyed by the English text; anything untranslated falls back to English). Suggestions carry a
+  Chinese copy (`zh`) made by a second Claude call at 09:00; WGW's copy passes the same privacy check.
+  Plan content in `plans.js` (session titles, notes) is shown as written.
 - **📊 All** tab: per runner, plan progress, this week's training minutes (by type; km run for TJH/SJH), and today's
   call + headline; the 5-week table shows plan % with that week's minutes underneath.
 

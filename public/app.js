@@ -1,4 +1,5 @@
 import { PEOPLE, planFor } from "./plans.js";
+import { t as tr, tKind, localized, applyStatic, setLang, setTheme, currentLang, currentTheme } from "./i18n.js";
 
 const HISTORY_WEEKS = 5;
 const POLL_MS = 45_000;
@@ -118,7 +119,7 @@ async function setDone(p, w, item, done) {
   } catch {
     done ? set.delete(item) : (set.add(item), prevLog && state.logs.set(`${p}|${w}|${item}`, prevLog));
     state.online = false;
-    toast("Couldn't save — check your connection");
+    toast(tr("Couldn't save — check your connection"));
     render();
     return false;
   }
@@ -153,11 +154,11 @@ function renderHeader() {
   const mon = fromIso(state.week);
   const sun = addDays(mon, 6);
   const cur = thisWeek();
-  const rel = state.week === cur ? "This week" : state.week === iso(addDays(fromIso(cur), -7)) ? "Last week"
-    : state.week === iso(addDays(fromIso(cur), 7)) ? "Next week" : "Tap for this week";
+  const rel = tr(state.week === cur ? "This week" : state.week === iso(addDays(fromIso(cur), -7)) ? "Last week"
+    : state.week === iso(addDays(fromIso(cur), 7)) ? "Next week" : "Tap for this week");
   $("#weekLabel").innerHTML = `${md(mon)} – ${md(sun)}<small>${rel}</small>`;
 
-  const tabs = [...PEOPLE.map((p) => ({ id: p.id, label: p.id, color: p.color })), { id: "board", label: "📊 All", color: "#e8eaee" }];
+  const tabs = [...PEOPLE.map((p) => ({ id: p.id, label: p.id, color: p.color })), { id: "board", label: tr("📊 All"), color: "var(--text)" }];
   $("#tabs").innerHTML = tabs.map((t) => `
     <button class="tab" role="tab" data-tab="${t.id}" aria-selected="${state.tab === t.id}" style="--c:${t.color}">
       ${t.id !== "board" ? `<span class="dot" style="background:${t.color}"></span>` : ""}${esc(t.label)}
@@ -170,7 +171,7 @@ function renderPerson(pid) {
   if (!s) {
     const plan = planFor(pid, state.week);
     let html = `<div class="hero"><h1>${esc(pid)}</h1><div class="sub">${esc(p.blurb)}</div></div>
-      <div class="empty">${esc(plan.empty)}</div>`;
+      <div class="empty">${esc(tr(plan.empty))}</div>`;
     if (pid !== "WGW") html += (state.week === thisWeek() ? renderToday(pid, p.color) : "") + renderSelfLog(pid, p.color);
     return html;
   }
@@ -183,7 +184,7 @@ function renderPerson(pid) {
       <h1>${esc(plan.title)}</h1><div class="sub">${esc(pid)} · ${esc(plan.sub)}</div>
       <div class="progress"><div class="track"><div class="fill" style="width:${pct * 100}%;background:${pct === 1 ? "var(--ok)" : p.color}"></div></div>
       <b>${done}/${total}</b></div>
-      ${km ? `<div class="sub">${Math.round(km * 10) / 10} km logged</div>` : ""}
+      ${km ? `<div class="sub">${tr("{n} km logged", { n: Math.round(km * 10) / 10 })}</div>` : ""}
     </div>`;
 
   const byDay = new Map();
@@ -195,7 +196,7 @@ function renderPerson(pid) {
     const date = addDays(mon, di);
     const today = isCur && di === todayIndex();
     html += `<div class="dayrow${today ? " today" : ""}" style="--c:${p.color}">
-      <div class="date"><b>${date.getDate()}</b><span>${today ? "Today" : DAYS[di]}</span></div><div class="stack">`;
+      <div class="date"><b>${date.getDate()}</b><span>${today ? tr("Today") : tr(DAYS[di])}</span></div><div class="stack">`;
     for (const it of items) {
       if (it.rest) { html += `<div class="rest">${esc(it.title)}</div>`; continue; }
       const d = set.has(it.id);
@@ -203,9 +204,9 @@ function renderPerson(pid) {
       const logged = d ? loggedLine(logOf(pid, state.week, it.id)) : "";
       html += `<button class="run${d ? " done" : ""}${missed ? " missed" : ""}" data-item="${it.id}" aria-pressed="${d}"${missed ? ' aria-label="Missed: ' + esc(it.title) + '"' : ""}>
           <span class="cbar" style="background:${it.color}"></span>
-          <span class="body"><div class="kind" style="color:${it.color}">${esc(it.kind)}${missed ? '<span class="mtag">Missed</span>' : ""}</div>
+          <span class="body"><div class="kind" style="color:${it.color}">${esc(tKind(it.kind))}${missed ? `<span class="mtag">${tr("Missed")}</span>` : ""}</div>
             <div class="title">${esc(it.title)}</div>${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
-            ${d ? `<div class="logged">${logged ? esc(logged) : "+ add details"}</div>` : ""}</span>
+            ${d ? `<div class="logged">${logged ? esc(logged) : tr("+ add details")}</div>` : ""}</span>
           <span class="box">${CHECK}</span></button>`;
     }
     html += `</div></div>`;
@@ -213,9 +214,9 @@ function renderPerson(pid) {
 
   if (plan.notes) {
     const n = plan.notes;
-    html += `<details class="notes"${store.get("notesOpen") === "1" ? " open" : ""}><summary>${esc(n.title)}</summary>
+    html += `<details class="notes"${store.get("notesOpen") === "1" ? " open" : ""}><summary>${esc(tr(n.title))}</summary>
       ${n.rows.map(([tg, c, nm, v, sm]) => `<div class="pace"><span class="tg" style="background:${c}">${tg}</span>
-        <span class="nm">${esc(nm)}</span><span class="v">${esc(v)}<small>${esc(sm)}</small></span></div>`).join("")}
+        <span class="nm">${esc(tKind(nm))}</span><span class="v">${esc(v)}<small>${esc(sm)}</small></span></div>`).join("")}
       ${n.text.map((t) => `<p>${esc(t)}</p>`).join("")}</details>`;
   }
   if (pid === "WGW" && isCur) html += renderSuggestion(p.color);
@@ -244,27 +245,27 @@ async function loadWgw() {
 }
 
 function renderSuggestion(color) {
-  const s = state.wgw?.suggestion;
+  const s = localized(state.wgw?.suggestion);
   const today = iso(new Date());
   if (!s || s.date !== today) {
-    return `<div class="sugg" style="--c:${color}"><div class="shead"><span>Today</span></div>
-      <p class="smute">${state.wgw ? "No suggestion yet today. It's written at 9:00 after the Garmin sync." : "Loading today's suggestion…"}</p></div>`;
+    return `<div class="sugg" style="--c:${color}"><div class="shead"><span>${tr("Today")}</span></div>
+      <p class="smute">${tr(state.wgw ? "No suggestion yet today. It's written at 9:00 after the Garmin sync." : "Loading today's suggestion…")}</p></div>`;
   }
   const c = CALL_COLOR[s.call] || color;
   return `<div class="sugg" style="--c:${c}">
-    <div class="shead"><span>Today</span><b class="call">${esc(CALL_LABEL[s.call] || s.call)}</b></div>
-    ${s.yesterday ? `<p class="syest"><b>Yesterday</b> ${esc(s.yesterday)}</p>` : ""}
+    <div class="shead"><span>${tr("Today")}</span><b class="call">${esc(tr(CALL_LABEL[s.call] || s.call))}</b></div>
+    ${s.yesterday ? `<p class="syest"><b>${tr("Yesterday")}</b> ${esc(s.yesterday)}</p>` : ""}
     <div class="stitle">${esc(s.headline)}</div>
     ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
     ${s.why ? `<p>${esc(s.why)}</p>` : ""}
-    ${s.next ? `<p class="smute">Tomorrow: ${esc(s.next)}</p>` : ""}
+    ${s.next ? `<p class="smute">${tr("Tomorrow:")} ${esc(s.next)}</p>` : ""}
   </div>`;
 }
 
 function renderWgwDash() {
   const g = state.wgw;
   if (!g) return "";
-  return renderDash(g, { splits: true, note: `From Garmin, updated ${g.generated}.` });
+  return renderDash(g, { splits: true, note: tr("From Garmin, updated {t}.", { t: g.generated }) });
 }
 
 /** Calendar (26 weeks) + minutes per week. g = { dataThrough, calendar: {date: {gym, cardio[]}}, weekly: [{week, gym, run, ...}] } */
@@ -273,12 +274,12 @@ function renderDash(g, { splits = false, note = "" } = {}) {
   const start = addDays(mondayOf(end), -7 * 25); // 26 weeks
   let cal = "", lastMonth = -1;
   for (let w = new Date(start); w <= end; w = addDays(w, 7)) {
-    cal += `<div class="cm">${w.getMonth() !== lastMonth ? ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][w.getMonth()] : ""}</div>`;
+    cal += `<div class="cm">${w.getMonth() !== lastMonth ? tr(["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][w.getMonth()]) : ""}</div>`;
     lastMonth = w.getMonth();
     for (let i = 0; i < 7; i++) {
       const d = addDays(w, i), k = iso(d), e = g.calendar[k];
       if (d > end) { cal += `<div class="cd" style="visibility:hidden"></div>`; continue; }
-      const parts = e ? [e.gym ? `gym ${e.gym}` : null, ...e.cardio].filter(Boolean) : [];
+      const parts = e ? [e.gym ? (e.gym === "gym" ? tr("gym") : `${tr("gym")} ${tr(e.gym)}`) : null, ...e.cardio.map((c) => tr(c))].filter(Boolean) : [];
       const bg = e?.gym ? `background:${WGW_COLORS[e.gym]}` : "";
       const dot = e?.cardio.length ? `<i class="${e.gym ? "" : "solo"}" style="background:${WGW_COLORS[e.cardio[0]]}"></i>` : "";
       cal += `<div class="cd" style="${bg}" title="${k}${parts.length ? ": " + esc(parts.join(", ")) : ""}">${dot}</div>`;
@@ -289,15 +290,15 @@ function renderDash(g, { splits = false, note = "" } = {}) {
   const bars = weeks.map((w) => {
     const tot = types.reduce((a, t) => a + (w[t] || 0), 0);
     const segs = types.filter((t) => w[t]).map((t) =>
-      `<span style="height:${(w[t] / max) * 100}%;background:${t === "gym" ? WGW_COLORS.pull : WGW_COLORS[t]}" title="${t} ${w[t]} min"></span>`).join("");
-    return `<div class="wb" title="Week of ${md(fromIso(w.week))}: ${tot} min"><div class="wstack">${segs}</div><small>${md(fromIso(w.week))}</small></div>`;
+      `<span style="height:${(w[t] / max) * 100}%;background:${t === "gym" ? WGW_COLORS.pull : WGW_COLORS[t]}" title="${tr(t)} ${w[t]} min"></span>`).join("");
+    return `<div class="wb" title="${tr("Week of {d}: {n} min", { d: md(fromIso(w.week)), n: tot })}"><div class="wstack">${segs}</div><small>${md(fromIso(w.week))}</small></div>`;
   }).join("");
-  const key = (list, dot) => list.map((t) => `<span><i class="${dot ? "dot" : ""}" style="background:${WGW_COLORS[t]}"></i>${t}</span>`).join("");
+  const key = (list, dot) => list.map((t) => `<span><i class="${dot ? "dot" : ""}" style="background:${WGW_COLORS[t]}"></i>${tr(t)}</span>`).join("");
   const cardio = ["run", "swim", "bike", "hike"].concat(splits ? [] : ["other"]);
-  return `<div class="section">Training calendar</div>
+  return `<div class="section">${tr("Training calendar")}</div>
     <div class="wcard"><div class="calscroll" id="dashCal"><div class="wcal">${cal}</div></div>
       <div class="wkey">${key(splits ? ["push", "pull", "legs", "reinforce"] : ["gym"], false)}${key(cardio, true)}</div></div>
-    <div class="section">Minutes per week</div>
+    <div class="section">${tr("Minutes per week")}</div>
     <div class="wcard"><div class="wbars">${bars}</div>
       <div class="wkey"><span><i style="background:${WGW_COLORS.pull}"></i>gym</span>${key(cardio, false)}</div>
       ${note ? `<div class="legend">${esc(note)}</div>` : ""}</div>`;
@@ -312,7 +313,7 @@ const actLine = (a) => {
 };
 const actDate = (d) => {
   const x = fromIso(d);
-  return `${DAYS[(x.getDay() + 6) % 7]} ${md(x)}${x.getFullYear() !== new Date().getFullYear() ? `/${String(x.getFullYear()).slice(2)}` : ""}`;
+  return `${tr(DAYS[(x.getDay() + 6) % 7])} ${md(x)}${x.getFullYear() !== new Date().getFullYear() ? `/${String(x.getFullYear()).slice(2)}` : ""}`;
 };
 
 async function loadHist(p) {
@@ -350,23 +351,24 @@ function dataChanged(p) {
 }
 
 function suggestionCard(s, color, mute) {
-  if (!s) return `<div class="sugg" style="--c:${color}"><div class="shead"><span>Today</span></div><p class="smute">${esc(mute)}</p></div>`;
-  const by = s.by === "claude" ? "by Claude · 9:00" : "";
+  if (!s) return `<div class="sugg" style="--c:${color}"><div class="shead"><span>${tr("Today")}</span></div><p class="smute">${esc(mute)}</p></div>`;
+  s = localized(s);
+  const by = s.by === "claude" ? tr("by Claude · 9:00") : "";
   return `<div class="sugg" style="--c:${CALL_COLOR[s.call] || color}">
-    <div class="shead"><span>Today${by ? `<small class="sby">${by}</small>` : ""}</span><b class="call">${esc(CALL_LABEL[s.call] || s.call)}</b></div>
-    ${s.yesterday ? `<p class="syest"><b>Yesterday</b> ${esc(s.yesterday)}</p>` : ""}
+    <div class="shead"><span>${tr("Today")}${by ? `<small class="sby">${by}</small>` : ""}</span><b class="call">${esc(tr(CALL_LABEL[s.call] || s.call))}</b></div>
+    ${s.yesterday ? `<p class="syest"><b>${tr("Yesterday")}</b> ${esc(s.yesterday)}</p>` : ""}
     <div class="stitle">${esc(s.headline)}</div>
     ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
     ${s.why ? `<p>${esc(s.why)}</p>` : ""}
-    ${s.form ? `<p class="sform"><b>Form</b> ${esc(s.form)}</p>` : ""}
-    ${s.science ? `<p class="ssci"><b>Why it works</b> ${esc(s.science)}</p>` : ""}
-    ${s.prehab?.length ? `<details class="snum"><summary>Prehab · 2×/week, ~15 min</summary>
+    ${s.form ? `<p class="sform"><b>${tr("Form")}</b> ${esc(s.form)}</p>` : ""}
+    ${s.science ? `<p class="ssci"><b>${tr("Why it works")}</b> ${esc(s.science)}</p>` : ""}
+    ${s.prehab?.length ? `<details class="snum"><summary>${tr("Prehab · 2×/week, ~15 min")}</summary>
       <ul>${s.prehab.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
-      <div class="smute">From recurring form issues in the logged runs. After easy runs or on rest days; stop if anything hurts.</div></details>` : ""}
-    ${s.numbers?.length ? `<details class="snum"${store.get("numOpen") === "0" ? "" : " open"}><summary>Numbers</summary>
+      <div class="smute">${tr("From recurring form issues in the logged runs. After easy runs or on rest days; stop if anything hurts.")}</div></details>` : ""}
+    ${s.numbers?.length ? `<details class="snum"${store.get("numOpen") === "0" ? "" : " open"}><summary>${tr("Numbers")}</summary>
       <ul>${s.numbers.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
-      <div class="smute">VDOT and paces: Jack Daniels' formula. Easy ceiling ≈ 79% of max HR seen.</div></details>` : ""}
-    ${s.next ? `<p class="smute">Next: ${esc(s.next)}</p>` : ""}
+      <div class="smute">${tr("VDOT and paces: Jack Daniels' formula. Easy ceiling ≈ 79% of max HR seen.")}</div></details>` : ""}
+    ${s.next ? `<p class="smute">${tr("Next:")} ${esc(s.next)}</p>` : ""}
   </div>`;
 }
 
@@ -376,11 +378,11 @@ function renderToday(p, color) {
   if (!t || (!t.loading && (t.dirty || t.date !== today || Date.now() - t.at > 30 * 60_000))) queueMicrotask(() => loadToday(p));
   if (t?.suggestion && t.suggestion.date === today) {
     return suggestionCard(t.suggestion, color).replace(/<\/div>\s*$/, t.newer
-      ? `<p class="smute">New sessions logged since this was written. They're in tomorrow's 9:00 suggestion.</p></div>` : "</div>");
+      ? `<p class="smute">${tr("New sessions logged since this was written. They're in tomorrow's 9:00 suggestion.")}</p></div>` : "</div>");
   }
-  const msg = !t || t.loading ? "Loading today's suggestion…"
-    : t.error ? `Couldn't load the suggestion: ${t.error}`
-    : "Claude writes this every morning at 9:00 from the sessions logged here. Nothing for today yet.";
+  const msg = !t || t.loading ? tr("Loading today's suggestion…")
+    : t.error ? tr("Couldn't load the suggestion: {e}", { e: t.error })
+    : tr("Claude writes this every morning at 9:00 from the sessions logged here. Nothing for today yet.");
   return suggestionCard(null, color, msg);
 }
 
@@ -422,13 +424,13 @@ function renderSelfLog(p) {
   const shown = showAllActs === p ? acts : acts.slice(0, 5);
   const list = shown.map((a) => `<button class="act" data-act="${a.id}">
       <span class="adot" style="background:${WGW_COLORS[a.type] || WGW_COLORS.other}"></span>
-      <span class="abody"><b>${esc(a.title || a.type)}</b><small>${esc(actDate(a.date))}${actLine(a) ? " · " + esc(actLine(a)) : ""}</small></span>
+      <span class="abody"><b>${esc(a.title || tr(a.type))}</b><small>${esc(actDate(a.date))}${actLine(a) ? " · " + esc(actLine(a)) : ""}</small></span>
     </button>`).join("");
-  let html = `<div class="section secrow"><span>My log</span><button class="addact" data-addact>+ Add activity</button></div>
-    <div class="acts">${list || `<div class="cmute">${h?.ready ? "Nothing added yet. Add runs, gym or swims here — on or off the plan, past sessions too." : "Loading…"}</div>`}
-    ${acts.length > 5 ? `<button class="more" data-moreacts>${showAllActs === p ? "Show fewer" : `Show all ${acts.length}`}</button>` : ""}</div>`;
+  let html = `<div class="section secrow"><span>${tr("My log")}</span><button class="addact" data-addact>${tr("+ Add activity")}</button></div>
+    <div class="acts">${list || `<div class="cmute">${tr(h?.ready ? "Nothing added yet. Add runs, gym or swims here — on or off the plan, past sessions too." : "Loading…")}</div>`}
+    ${acts.length > 5 ? `<button class="more" data-moreacts>${showAllActs === p ? tr("Show fewer") : tr("Show all {n}", { n: acts.length })}</button>` : ""}</div>`;
   const g = selfDash(p);
-  if (g) html += renderDash(g, { note: "From what's logged here: ticked plan sessions plus added activities." });
+  if (g) html += renderDash(g, { note: tr("From what's logged here: ticked plan sessions plus added activities.") });
   return html;
 }
 
@@ -447,17 +449,21 @@ const EXTRA_FIELDS = [
   ["splits", "Km splits", "", "5:45 5:40 5:38 …", "text", true],
   ["split_hr", "Split HR", "", "150 156 160 …", "text", true],
 ];
-$("#aExtra").innerHTML = EXTRA_FIELDS.map(([k, label, unit, ph, mode, full]) =>
-  `<label${full ? ' class="span2"' : ""}>${label}${unit ? ` <span>${unit}</span>` : ""}<input id="ax_${k}" inputmode="${mode}" placeholder="${ph}"></label>`).join("");
+function renderExtraFields() {
+  const vals = Object.fromEntries(EXTRA_FIELDS.map(([k]) => [k, $(`#ax_${k}`)?.value || ""]));
+  $("#aExtra").innerHTML = EXTRA_FIELDS.map(([k, label, unit, ph, mode, full]) =>
+    `<label${full ? ' class="span2"' : ""}>${tr(label)}${unit ? ` <span>${tr(unit)}</span>` : ""}<input id="ax_${k}" inputmode="${mode}" placeholder="${ph}" value="${esc(vals[k])}"></label>`).join("");
+}
+renderExtraFields();
 const parseExtra = (a) => { try { return a?.extra ? JSON.parse(a.extra) : {}; } catch { return {}; } };
 function extraCount() { return EXTRA_FIELDS.filter(([k]) => $(`#ax_${k}`).value.trim()).length; }
-function updateExtraSummary() { const n = extraCount(); $("#aExtraN").textContent = n ? `${n} filled` : "optional"; }
+function updateExtraSummary() { const n = extraCount(); $("#aExtraN").textContent = n ? tr("{n} filled", { n }) : tr("optional"); }
 
 // Add / edit activity sheet
 const act = { open: false, p: null, id: null, busy: false, paceTouched: false };
 function openAct(p, a = null) {
   Object.assign(act, { open: true, p, id: a?.id || null, paceTouched: !!a?.pace });
-  $("#actKind").textContent = `${p} · ${a ? "Edit activity" : "New activity"}`;
+  $("#actKind").textContent = `${p} · ${tr(a ? "Edit activity" : "New activity")}`;
   $("#aDate").value = a?.date || iso(new Date());
   $("#aDate").max = iso(new Date());
   $("#aType").value = a?.type || "run";
@@ -473,7 +479,7 @@ function openAct(p, a = null) {
   $("#aMore").open = extraCount() > 0;
   updateExtraSummary();
   $("#aDelete").hidden = !a;
-  $("#aShotLabel").textContent = "📷 Fill from a watch screenshot";
+  $("#aShotText").textContent = tr("📷 Fill from a watch screenshot");
   $("#actSheet").classList.add("show");
   document.body.classList.add("noscroll");
 }
@@ -494,9 +500,9 @@ async function saveAct(e) {
   const duration = normTime($("#aTime").value);
   const pace = normTime($("#aPace").value, { pace: true });
   const km = $("#aKm").value.trim().replace(",", ".");
-  if (km && !(parseFloat(km) > 0)) return toast("Distance should be a number of km");
-  if (duration === null) return toast("Time should look like 32:10 or 1:02:30");
-  if (pace === null) return toast("Pace should look like 5:40");
+  if (km && !(parseFloat(km) > 0)) return toast(tr("Distance should be a number of km"));
+  if (duration === null) return toast(tr("Time should look like 32:10 or 1:02:30"));
+  if (pace === null) return toast(tr("Pace should look like 5:40"));
   act.busy = true;
   try {
     const { activity } = await api("/api/activities", { method: "POST", body: JSON.stringify({
@@ -511,13 +517,13 @@ async function saveAct(e) {
     dataChanged(act.p);
     closeAct();
     render();
-    toast("Saved ✓");
+    toast(tr("Saved ✓"));
   } catch (err) {
-    toast(`Couldn't save: ${err.message}`);
+    toast(tr("Couldn't save: {e}", { e: err.message }));
   } finally { act.busy = false; }
 }
 async function deleteAct() {
-  if (!act.id || !confirm("Delete this activity?")) return;
+  if (!act.id || !confirm(tr("Delete this activity?"))) return;
   try {
     await api(`/api/activities?person=${act.p}&id=${act.id}`, { method: "DELETE" });
     const h = state.hist.get(act.p);
@@ -525,11 +531,11 @@ async function deleteAct() {
     dataChanged(act.p);
     closeAct();
     render();
-  } catch (err) { toast(`Couldn't delete: ${err.message}`); }
+  } catch (err) { toast(tr("Couldn't delete: {e}", { e: err.message })); }
 }
 async function actFromShot(file) {
-  const label = $("#aShotLabel");
-  label.textContent = "Reading screenshot…";
+  const label = $("#aShotText");
+  label.textContent = tr("Reading screenshot…");
   try {
     const blob = await compress(file);
     const r = await api(`/api/extract?person=${act.p}`, { method: "POST", body: blob, headers: { "content-type": "image/jpeg" } });
@@ -543,9 +549,9 @@ async function actFromShot(file) {
     updateExtraSummary();
     if (r.pace) { $("#aPace").value = r.pace; act.paceTouched = true; } else actAutoPace();
     const n = ["date", "km", "duration", "hr", "cadence"].filter((k) => r[k] != null).length;
-    toast(n ? "Filled from screenshot — check & Save" : "Couldn't find stats in that image");
+    toast(tr(n ? "Filled from screenshot — check & Save" : "Couldn't find stats in that image"));
   } catch (err) { toast(err.message); }
-  label.textContent = "📷 Fill from a watch screenshot";
+  label.textContent = tr("📷 Fill from a watch screenshot");
 }
 
 // Weekly totals per runner: WGW from Garmin (wgw.json, minutes only), others from what they log here.
@@ -570,7 +576,7 @@ function todayOf(pid) {
 function renderBoard() {
   const w = state.week, isCur = w === thisWeek();
   for (const p of PEOPLE) if (p.id !== "WGW") queueMicrotask(() => loadHist(p.id));
-  let html = `<div class="section">${isCur ? "This week" : "Week of " + md(fromIso(w))}</div>`;
+  let html = `<div class="section">${isCur ? tr("This week") : tr("Week of {d}", { d: md(fromIso(w)) })}</div>`;
 
   for (const p of PEOPLE) {
     const s = summary(p.id, w);
@@ -585,25 +591,26 @@ function renderBoard() {
       html += `<div class="progress"><div class="track"><div class="fill" style="width:${s.pct * 100}%;background:${s.pct === 1 ? "var(--ok)" : p.color}"></div></div></div>
         <div class="pips">${s.items.map((it) => {
           const st = itemStatus(w, it, set.has(it.id));
-          return `<span class="pip ${st}" title="${esc(it.title)}">${it.day}</span>`;
+          return `<span class="pip ${st}" title="${esc(it.title)}">${tr(it.day)}</span>`;
         }).join("")}</div>`;
     } else {
-      html += `<div class="blurb" style="margin-top:6px">${esc(planFor(p.id, w).empty)}</div>`;
+      html += `<div class="blurb" style="margin-top:6px">${esc(tr(planFor(p.id, w).empty))}</div>`;
     }
     if (tot && tot.min) {
       const parts = MIN_TYPES.filter((t) => tot.w[t]).map((t) =>
-        `<span><i style="background:${t === "gym" ? WGW_COLORS.pull : WGW_COLORS[t]}"></i>${t} ${tot.w[t]}′</span>`).join("");
-      html += `<div class="bweek"><b>${tot.min}′</b>${tot.km ? ` · ${Math.round(tot.km * 10) / 10} km run` : ""}${parts}</div>`;
+        `<span><i style="background:${t === "gym" ? WGW_COLORS.pull : WGW_COLORS[t]}"></i>${tr(t)} ${tot.w[t]}′</span>`).join("");
+      html += `<div class="bweek"><b>${tot.min}′</b>${tot.km ? ` · ${tr("{n} km run", { n: Math.round(tot.km * 10) / 10 })}` : ""}${parts}</div>`;
     }
     if (sug) {
-      html += `<div class="btoday" style="--k:${CALL_COLOR[sug.call] || p.color}"><b>${esc(CALL_LABEL[sug.call] || sug.call)}</b>${esc(sug.headline)}</div>`;
+      const ls = localized(sug);
+      html += `<div class="btoday" style="--k:${CALL_COLOR[ls.call] || p.color}"><b>${esc(tr(CALL_LABEL[ls.call] || ls.call))}</b>${esc(ls.headline)}</div>`;
     }
     html += `</button>`;
   }
 
   const weeks = [];
   for (let i = HISTORY_WEEKS - 1; i >= 0; i--) weeks.push(iso(addDays(fromIso(w), -7 * i)));
-  html += `<div class="section">Last ${HISTORY_WEEKS} weeks</div>
+  html += `<div class="section">${tr("Last {n} weeks", { n: HISTORY_WEEKS })}</div>
     <table class="hist"><tr><th></th>${weeks.map((wk) => `<th>${md(fromIso(wk))}</th>`).join("")}</tr>`;
   for (const p of PEOPLE) {
     html += `<tr><td>${p.id}</td>`;
@@ -623,8 +630,7 @@ function renderBoard() {
     }
     html += `</tr>`;
   }
-  html += `</table><div class="legend">Top: share of planned sessions ticked off. Below: training minutes that week
-    (WGW from Garmin; TJH and SJH from what they log). Tap a runner to open their week.</div>`;
+  html += `</table><div class="legend">${tr("Top: share of planned sessions ticked off. Below: training minutes that week (WGW from Garmin; TJH and SJH from what they log). Tap a runner to open their week.")}</div>`;
   return html;
 }
 
@@ -633,8 +639,8 @@ function render() {
   $("#main").innerHTML = state.tab === "board" ? renderBoard() : renderPerson(state.tab);
   const cs = $("#dashCal"); if (cs) cs.scrollLeft = cs.scrollWidth;
   $("#status").textContent = !state.online
-    ? "Offline — changes may not be saved"
-    : state.lastSync ? `Synced ${state.lastSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Loading…";
+    ? tr("Offline — changes may not be saved")
+    : state.lastSync ? tr("Synced {t}", { t: state.lastSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }) : tr("Loading…");
 }
 
 // ── log sheet ────────────────────────────────────────────────────────────────
@@ -644,7 +650,7 @@ const photoUrls = new Map(); // "p|w|item|updated_at" -> objectURL
 function openSheet(p, w, it) {
   Object.assign(sheet, { p, w, item: it.id, paceTouched: false });
   const l = logOf(p, w, it.id) || {};
-  $("#logKind").textContent = `${p} · ${DAYS[it.dayIndex]} · ${it.kind}`;
+  $("#logKind").textContent = `${p} · ${tr(DAYS[it.dayIndex])} · ${tKind(it.kind)}`;
   $("#logKind").style.color = it.color || "var(--mute)";
   $("#logTitle").textContent = it.title;
   $("#fKm").value = l.km ?? "";
@@ -669,15 +675,15 @@ async function renderPhoto() {
   const box = $("#photoBox");
   if (!l.has_photo) {
     box.innerHTML = `<label class="addphoto"><input type="file" accept="image/*" id="fPhoto" hidden>
-      📷 Add photo or watch screenshot</label>`;
+      ${tr("📷 Add photo or watch screenshot")}</label>`;
     return;
   }
-  box.innerHTML = `<div class="thumb"><div class="ph">Loading photo…</div></div>
-    <div class="photobtns"><button type="button" id="fExtract">✨ Fill from screenshot</button><button type="button" id="fRemove" class="ghost">Remove</button></div>`;
+  box.innerHTML = `<div class="thumb"><div class="ph">${tr("Loading photo…")}</div></div>
+    <div class="photobtns"><button type="button" id="fExtract">${tr("✨ Fill from screenshot")}</button><button type="button" id="fRemove" class="ghost">${tr("Remove")}</button></div>`;
   const k = `${p}|${w}|${item}|${l.updated_at}`;
   if (!photoUrls.has(k)) {
     const res = await request(`/api/photo?${qsKey(p, w, item)}`);
-    if (!res.ok) { box.querySelector(".thumb").innerHTML = `<div class="ph">Photo unavailable</div>`; return; }
+    if (!res.ok) { box.querySelector(".thumb").innerHTML = `<div class="ph">${tr("Photo unavailable")}</div>`; return; }
     photoUrls.set(k, URL.createObjectURL(await res.blob()));
   }
   if (sheet.item !== item) return;
@@ -701,7 +707,7 @@ async function compress(file) {
 
 async function uploadPhoto(file) {
   const { p, w, item } = sheet;
-  $("#photoBox").innerHTML = `<div class="thumb"><div class="ph">Uploading…</div></div>`;
+  $("#photoBox").innerHTML = `<div class="thumb"><div class="ph">${tr("Uploading…")}</div></div>`;
   try {
     const blob = await compress(file);
     const r = await api(`/api/photo?${qsKey(p, w, item)}`, { method: "PUT", body: blob, headers: { "content-type": "image/jpeg" } });
@@ -709,9 +715,9 @@ async function uploadPhoto(file) {
     state.logs.set(`${p}|${w}|${item}`, { ...l, has_photo: 1, updated_at: r.updated_at });
     render();
     await renderPhoto();
-    toast("Photo saved — tap ✨ to read stats from it");
+    toast(tr("Photo saved — tap ✨ to read stats from it"));
   } catch (e) {
-    toast(`Upload failed: ${e.message}`);
+    toast(tr("Upload failed: {e}", { e: e.message }));
     renderPhoto();
   }
 }
@@ -731,10 +737,10 @@ async function saveSheet(e) {
   const duration = normTime($("#fTime").value);
   const pace = normTime($("#fPace").value, { pace: true });
   const hr = $("#fHr").value.trim();
-  if (km && !(parseFloat(km) > 0)) return toast("Distance should be a number of km");
-  if (duration === null) return toast("Time should look like 32:10 or 1:02:30");
-  if (pace === null) return toast("Pace should look like 5:40");
-  if (hr && !(+hr >= 40 && +hr <= 230)) return toast("Heart rate should be 40–230");
+  if (km && !(parseFloat(km) > 0)) return toast(tr("Distance should be a number of km"));
+  if (duration === null) return toast(tr("Time should look like 32:10 or 1:02:30"));
+  if (pace === null) return toast(tr("Pace should look like 5:40"));
+  if (hr && !(+hr >= 40 && +hr <= 230)) return toast(tr("Heart rate should be 40–230"));
   sheet.busy = true;
   try {
     const r = await api("/api/progress", {
@@ -746,9 +752,9 @@ async function saveSheet(e) {
     dataChanged(p);
     closeSheet();
     render();
-    toast("Saved ✓");
+    toast(tr("Saved ✓"));
   } catch (err) {
-    toast(`Couldn't save: ${err.message}`);
+    toast(tr("Couldn't save: {e}", { e: err.message }));
   } finally { sheet.busy = false; }
 }
 
@@ -809,7 +815,7 @@ $("#fPace").addEventListener("blur", () => { const t = normTime($("#fPace").valu
 $("#logUndo").addEventListener("click", async () => {
   const { p, w, item } = sheet;
   const l = logOf(p, w, item);
-  if ((l?.km || l?.duration || l?.hr || l?.note || l?.has_photo) && !confirm("Un-tick this session? Its logged details and photo will be removed.")) return;
+  if ((l?.km || l?.duration || l?.hr || l?.note || l?.has_photo) && !confirm(tr("Un-tick this session? Its logged details and photo will be removed."))) return;
   closeSheet();
   setDone(p, w, item, false);
 });
@@ -832,11 +838,11 @@ $("#photoBox").addEventListener("click", async (e) => {
       const r = await api(`/api/photo?${qsKey(p, w, item)}`, { method: "DELETE" });
       state.logs.set(`${p}|${w}|${item}`, { ...logOf(p, w, item), has_photo: 0, updated_at: r.updated_at });
       render(); renderPhoto();
-    } catch (err) { toast(`Couldn't remove: ${err.message}`); }
+    } catch (err) { toast(tr("Couldn't remove: {e}", { e: err.message })); }
   }
   if (e.target.id === "fExtract") {
     const b = e.target;
-    b.disabled = true; b.textContent = "Reading…";
+    b.disabled = true; b.textContent = tr("Reading…");
     try {
       const r = await api("/api/extract", { method: "POST", body: JSON.stringify({ person: p, week: w, item }) });
       const got = [];
@@ -844,9 +850,9 @@ $("#photoBox").addEventListener("click", async (e) => {
       if (r.duration) { $("#fTime").value = r.duration; got.push("time"); }
       if (r.hr != null) { $("#fHr").value = r.hr; got.push("HR"); }
       if (r.pace) { $("#fPace").value = r.pace; sheet.paceTouched = true; got.push("pace"); } else autoPace();
-      toast(got.length ? `Filled ${got.join(", ")} — check & Save` : "Couldn't find stats in that image");
+      toast(got.length ? tr("Filled {f} — check & Save", { f: got.map((g) => tr(g)).join(", ") }) : tr("Couldn't find stats in that image"));
     } catch (err) { toast(err.message); }
-    b.disabled = false; b.textContent = "✨ Fill from screenshot";
+    b.disabled = false; b.textContent = tr("✨ Fill from screenshot");
   }
 });
 
@@ -866,6 +872,24 @@ function onWake() {
 }
 document.addEventListener("visibilitychange", onWake);
 setInterval(() => document.visibilityState === "visible" && onWake(), POLL_MS);
+
+// Settings: language + theme (stored per device by i18n.js)
+function syncSeg() {
+  document.querySelectorAll("#segLang button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === currentLang())));
+  document.querySelectorAll("#segTheme button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === currentTheme())));
+}
+$("#gear").addEventListener("click", () => { syncSeg(); $("#setSheet").classList.add("show"); });
+$("#setClose").addEventListener("click", () => $("#setSheet").classList.remove("show"));
+$("#setSheet").addEventListener("click", (e) => { if (e.target.id === "setSheet") $("#setSheet").classList.remove("show"); });
+$("#segLang").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-v]"); if (!b) return;
+  setLang(b.dataset.v); renderExtraFields(); updateExtraSummary(); syncSeg(); render();
+});
+$("#segTheme").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-v]"); if (!b) return;
+  setTheme(b.dataset.v); syncSeg();
+});
+applyStatic();
 
 // Deep links: ?tab=TJH|WGW|SJH|board  &week=YYYY-MM-DD
 const qs = new URLSearchParams(location.search);
