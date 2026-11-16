@@ -253,6 +253,8 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
   .sheet .seg button{margin:0;width:auto;height:34px;padding:0 14px;border-radius:8px;background:transparent;color:var(--mute);font-weight:600;font-size:14px}
   .sheet .seg button[aria-pressed="true"]{background:var(--card);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
   .toast{color:var(--text)}
+  .justfilled{outline:2px solid var(--ok);outline-offset:1px;transition:outline-color 1.6s}
+  #actForm.dropping{outline:2px dashed var(--ok);outline-offset:-6px}
 </style>
 </head>
 <body>
@@ -337,7 +339,7 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
       <div class="fgrid" id="aExtra"></div>
     </details>
     <label class="full"><b data-i18n="Note">Note</b><textarea id="aNote" rows="2" maxlength="300" placeholder="How did it feel? Splits, weather…" data-i18n-ph="How did it feel? Splits, weather…"></textarea></label>
-    <label class="addphoto" id="aShotLabel"><input type="file" accept="image/*" id="aShot" hidden><span id="aShotText" data-i18n="📷 Fill from a watch screenshot">📷 Fill from a watch screenshot</span></label>
+    <label class="addphoto" id="aShotLabel"><input type="file" accept="image/*" id="aShot" hidden><span id="aShotText" data-i18n="📷 Pick or paste a watch screenshot">📷 Pick or paste a watch screenshot</span></label>
     <div class="actions">
       <button type="button" class="ghost" id="aDelete" data-i18n="Delete">Delete</button>
       <button type="submit" class="primary" data-i18n="Save">Save</button>

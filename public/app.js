@@ -479,7 +479,7 @@ function openAct(p, a = null) {
   $("#aMore").open = extraCount() > 0;
   updateExtraSummary();
   $("#aDelete").hidden = !a;
-  $("#aShotText").textContent = tr("📷 Fill from a watch screenshot");
+  $("#aShotText").textContent = tr("📷 Pick or paste a watch screenshot");
   $("#actSheet").classList.add("show");
   document.body.classList.add("noscroll");
 }
@@ -539,19 +539,23 @@ async function actFromShot(file) {
   try {
     const blob = await compress(file);
     const r = await api(`/api/extract?person=${act.p}`, { method: "POST", body: blob, headers: { "content-type": "image/jpeg" } });
-    const set = (id, v) => { if (v != null && v !== "") $(id).value = v; };
+    const filled = [];
+    const set = (id, v) => { if (v != null && v !== "") { $(id).value = v; filled.push(id); } };
     set("#aDate", r.date && r.date <= iso(new Date()) ? r.date : null);
-    set("#aType", r.type); set("#aTitle", r.title); set("#aKm", r.km); set("#aTime", r.duration);
+    set("#aType", r.type); set("#aKm", r.km); set("#aTime", r.duration);
+    if (!$("#aTitle").value.trim()) set("#aTitle", r.title); // keep a title the runner already typed
     set("#aHr", r.hr); set("#aCad", r.cadence);
     let nx = 0;
-    for (const [k] of EXTRA_FIELDS) if (r.extra?.[k] != null && r.extra[k] !== "") { $(`#ax_${k}`).value = r.extra[k]; nx++; }
+    for (const [k] of EXTRA_FIELDS) if (r.extra?.[k] != null && r.extra[k] !== "") { set(`#ax_${k}`, r.extra[k]); nx++; }
     if (nx) $("#aMore").open = true;
     updateExtraSummary();
-    if (r.pace) { $("#aPace").value = r.pace; act.paceTouched = true; } else actAutoPace();
-    const n = ["date", "km", "duration", "hr", "cadence"].filter((k) => r[k] != null).length;
-    toast(tr(n ? "Filled from screenshot — check & Save" : "Couldn't find stats in that image"));
+    if (r.pace) { set("#aPace", r.pace); act.paceTouched = true; } else actAutoPace();
+    for (const id of filled) { const el = $(id); el.classList.add("justfilled"); setTimeout(() => el.classList.remove("justfilled"), 1800); }
+    const notes = (r.notes || []).map((x) => tr(x)).join("; ");
+    toast(filled.length ? tr("Filled {n} fields — check & Save", { n: filled.length }) + (notes ? ` (${notes})` : "")
+      : tr("Couldn't find stats in that image"));
   } catch (err) { toast(err.message); }
-  label.textContent = tr("📷 Fill from a watch screenshot");
+  label.textContent = tr("📷 Pick or paste a watch screenshot");
 }
 
 // Weekly totals per runner: WGW from Garmin (wgw.json, minutes only), others from what they log here.
@@ -830,6 +834,26 @@ $("#aTime").addEventListener("input", actAutoPace);
 $("#aTime").addEventListener("blur", () => { const t = normTime($("#aTime").value); if (t) $("#aTime").value = t; actAutoPace(); });
 $("#aPace").addEventListener("input", () => { act.paceTouched = !!$("#aPace").value; });
 $("#aShot").addEventListener("change", (e) => { if (e.target.files[0]) actFromShot(e.target.files[0]); e.target.value = ""; });
+
+// Paste / drop a screenshot. Only acts when the clipboard actually holds an image, so pasting text into a field
+// still works normally. Add-activity form open → read it; session log open → attach as its photo;
+// on TJH's or SJH's tab → open Add activity and read it.
+const imageFrom = (items) => [...(items || [])].find((it) => it.kind === "file" && /^image\//.test(it.type))?.getAsFile() || null;
+document.addEventListener("paste", (e) => {
+  const file = imageFrom(e.clipboardData?.items);
+  if (!file) return;
+  e.preventDefault();
+  if (act.open) return actFromShot(file);
+  if (sheet.item) return uploadPhoto(file);
+  if (person(state.tab) && state.tab !== "WGW") { openAct(state.tab); actFromShot(file); }
+});
+$("#actForm").addEventListener("dragover", (e) => { e.preventDefault(); $("#actForm").classList.add("dropping"); });
+$("#actForm").addEventListener("dragleave", () => $("#actForm").classList.remove("dropping"));
+$("#actForm").addEventListener("drop", (e) => {
+  e.preventDefault(); $("#actForm").classList.remove("dropping");
+  const file = [...(e.dataTransfer?.files || [])].find((f) => /^image\//.test(f.type));
+  if (file) actFromShot(file);
+});
 $("#photoBox").addEventListener("change", (e) => { if (e.target.id === "fPhoto" && e.target.files[0]) uploadPhoto(e.target.files[0]); });
 $("#photoBox").addEventListener("click", async (e) => {
   const { p, w, item } = sheet;

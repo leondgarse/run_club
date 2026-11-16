@@ -125,6 +125,16 @@ npm run db:migrate                                            # once: migrations
 npx wrangler d1 execute run-club --remote --file=seed/<file>.sql   # load history sent in chat
 ```
 
+## Screenshot reading
+
+In **Add activity**, pick a screenshot or just **paste** one (also: paste on TJH's/SJH's tab opens the form; paste in
+a session log attaches it as the photo; drag-and-drop works). `/api/extract` sends it to Mistral vision, which only
+**transcribes** label/value pairs, title, date text and any per-km table; `lib/screenshot.js` maps labels to fields
+with an EN/中文 glossary, converts units, and cross-checks (distance × pace ≈ time, cadence × stride ≈ speed, split
+count ≈ km), dropping values that don't fit. Works with any crop: only what's visible is filled. Tested on Huawei
+Health (EN) and OPPO Health (中文); new apps need their labels added to `GLOSSARY`.
+`node scripts/test_screenshot.mjs` runs the offline mapping tests (made-up data). `samples/` is gitignored.
+
 ## Security
 
 Runner-typed text (titles, notes, extra fields) ends up in the prompt Claude reads at 09:00, so it is treated as

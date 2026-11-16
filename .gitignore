@@ -8,3 +8,5 @@ seed/
 public/wgw.json
 __pycache__/
 *.pyc
+# runners' real screenshots (personal data)
+samples/
