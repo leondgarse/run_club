@@ -4,6 +4,17 @@
 //          extra: the "Additional" fields (EXTRA below). Keys not listed there that are already stored are kept.
 //   DELETE ?person=&id=
 import { DATE, HttpError, PEOPLE, fromQuery, handle, json } from "../../lib/shared.js";
+import { TEXT_RULES } from "../../lib/rules.js";
+
+/** Free text checked against lib/rules.js TEXT_RULES: rejected (not silently changed) if it breaks the rule. */
+function text(k, v) {
+  if (v == null) return null;
+  const s = String(v).normalize("NFKC").replace(/\s+/g, " ").trim();
+  if (!s) return null;
+  const r = TEXT_RULES[k];
+  if (s.length > r.max || !r.re.test(s)) throw new HttpError(400, `${k.replace("_", " ")}: ${r.hint}`);
+  return s;
+}
 
 const TYPES = new Set(["run", "gym", "swim", "bike", "hike", "other"]);
 const TIME = /^(\d{1,2}:)?\d{1,2}:\d{2}$/;
@@ -25,7 +36,7 @@ function num(v, lo, hi, what, round = 1) {
 const EXTRA = {
   max_hr: [60, 230, 0], stride_m: [0.3, 2.5, 2], gct_ms: [120, 450, 0], vert_osc_cm: [2, 20, 1],
   lr_balance: [40, 60, 1], power_w: [30, 900, 0], elev_m: [0, 5000, 0], training_load: [0, 1000, 0],
-  start: /^([01]?\d|2[0-3]):[0-5]\d$/, splits: 300, split_hr: 200, weather: 60,
+  start: /^([01]?\d|2[0-3]):[0-5]\d$/, splits: "text", split_hr: "text", weather: "text",
 };
 
 function cleanExtra(x, old) {
@@ -43,7 +54,7 @@ function cleanExtra(x, old) {
     } else if (rule instanceof RegExp) {
       if (!rule.test(String(v).trim())) throw new HttpError(400, `bad ${k}`);
       out[k] = String(v).trim();
-    } else out[k] = String(v).trim().slice(0, rule);
+    } else { const t = text(k, v); if (t) out[k] = t; }
   }
   return Object.keys(out).length ? JSON.stringify(out) : null;
 }
@@ -54,12 +65,14 @@ function clean(b) {
   if (!TYPES.has(b.type)) throw new HttpError(400, "bad type");
   const a = {
     date: b.date, type: b.type,
-    title: b.title ? String(b.title).trim().slice(0, 80) || null : null,
+    title: text("title", b.title),
     km: num(b.km, 0.01, 300, "distance", 100),
     duration: null, pace: null,
     hr: num(b.hr, 40, 230, "heart rate"),
     cadence: num(b.cadence, 60, 240, "cadence"),
-    note: b.note ? String(b.note).slice(0, 500) : null,
+    // Notes stay free text (they carry "left knee sore" etc.) but are capped and stripped of control characters;
+    // the prompt quotes them as untrusted data.
+    note: b.note ? String(b.note).replace(/[\p{Cc}\p{Cf}]/gu, " ").trim().slice(0, 300) || null : null,
   };
   if (b.duration) { if (!TIME.test(b.duration)) throw new HttpError(400, "bad time"); a.duration = b.duration; }
   if (b.pace) { if (!PACE.test(b.pace)) throw new HttpError(400, "bad pace"); a.pace = b.pace; }

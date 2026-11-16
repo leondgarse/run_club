@@ -1,0 +1,9 @@
+# Cloudflare Pages response headers. The CSP only allows this site's own files and API (no third-party scripts,
+# images or requests), so even injected text could not load or send anything elsewhere.
+# The inline theme script in index.html is allowed by its hash: if you edit that script, update the hash
+# (scripts/csp_hash.sh prints it).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-K8ACyMEZJPX2iL6VUYlpFPA0vKp+ylXOlJ8OHPR7gRg='; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=()

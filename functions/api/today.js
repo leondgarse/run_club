@@ -9,6 +9,7 @@ import { DAY, describeWeek, mmss, sec } from "../../lib/week.js";
 import { formCheck, formFlags } from "../../lib/form.js";
 import { sportsScience } from "../../lib/science.js";
 import { coachMetrics, describeMetrics } from "../../lib/metrics.js";
+import { RULES, untrusted } from "../../lib/rules.js";
 
 const WINDOW_DAYS = 21;
 
@@ -46,10 +47,10 @@ function describeActivity(a, easy, maxHr) {
   let extra = "";
   try {
     const x = a.extra ? JSON.parse(a.extra) : null;
-    if (x) extra = Object.entries(x).map(([k, v]) => `${k} ${v}`).join(", ");
+    if (x) extra = Object.entries(x).map(([k, v]) => `${k} ${typeof v === "number" ? v : untrusted(v, 120)}`).join(", ");
   } catch {}
-  const bits = [a.title, a.km && `${a.km} km`, a.duration && `time ${a.duration}`, a.pace && `pace ${a.pace}/km`,
-    a.hr && `avg HR ${a.hr}`, a.cadence && `cadence ${a.cadence}`, a.note && `note: "${a.note}"`, extra].filter(Boolean);
+  const bits = [a.title && `title ${untrusted(a.title, 80)}`, a.km && `${a.km} km`, a.duration && `time ${a.duration}`, a.pace && `pace ${a.pace}/km`,
+    a.hr && `avg HR ${a.hr}`, a.cadence && `cadence ${a.cadence}`, a.note && `note ${untrusted(a.note, 300)}`, extra].filter(Boolean);
   const fc = formCheck(a), rc = runCheck(a, easy, maxHr);
   return `- ${a.date} (${DAY[(new Date(a.date + "T00:00:00Z").getUTCDay() + 6) % 7]}) ${a.type}: ${bits.join(", ")}` +
     (rc ? `\n    HR CHECK: ${rc}` : "") + (fc ? `\n    FORM CHECK: ${fc}` : "");
@@ -199,6 +200,8 @@ YESTERDAY (${yesterday}, ${DAY[(todayIdx + 6) % 7]}):
 In "yesterday", comment in 1-2 short sentences on how yesterday went against your suggestion (or the plan if there
 was no suggestion): followed, swapped, overdone, skipped? Use the logged numbers. If nothing was planned, suggested
 or logged yesterday, use null.
+
+${RULES}
 
 STYLE. Write like a sharp coach texting the runner, not a report:
 - Short, direct sentences. Numbers over adjectives. Name the runner's actual problem.

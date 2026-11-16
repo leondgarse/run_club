@@ -304,7 +304,7 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
       <label><b data-i18n="Avg pace">Avg pace</b> <span>/km</span><input id="fPace" inputmode="numeric" placeholder="auto"></label>
       <label><b data-i18n="Avg HR">Avg HR</b> <span>bpm</span><input id="fHr" inputmode="numeric" placeholder="148"></label>
     </div>
-    <label class="full"><b data-i18n="Note">Note</b><textarea id="fNote" rows="2" placeholder="How did it feel?" data-i18n-ph="How did it feel?"></textarea></label>
+    <label class="full"><b data-i18n="Note">Note</b><textarea id="fNote" rows="2" maxlength="300" placeholder="How did it feel?" data-i18n-ph="How did it feel?"></textarea></label>
     <div id="photoBox"></div>
     <div class="actions">
       <button type="button" class="ghost" id="logUndo" data-i18n="Un-tick">Un-tick</button>
@@ -324,7 +324,7 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
         <option value="run" data-i18n="Run">Run</option><option value="gym" data-i18n="Gym">Gym</option><option value="swim" data-i18n="Swim">Swim</option>
         <option value="bike" data-i18n="Bike">Bike</option><option value="hike" data-i18n="Hike / walk">Hike / walk</option><option value="other" data-i18n="Other">Other</option></select></label>
     </div>
-    <label class="full"><b data-i18n="Title">Title</b> <span data-i18n="optional">optional</span><input id="aTitle" placeholder="Easy run" maxlength="80"></label>
+    <label class="full"><b data-i18n="Title">Title</b> <span data-i18n="optional">optional</span><input id="aTitle" placeholder="Easy run" maxlength="40"></label>
     <div class="fgrid" style="margin-top:10px">
       <label><b data-i18n="Distance">Distance</b> <span>km</span><input id="aKm" inputmode="decimal" placeholder="5.0"></label>
       <label><b data-i18n="Time">Time</b> <span>h:mm:ss</span><input id="aTime" inputmode="numeric" placeholder="32:10"></label>
@@ -336,7 +336,7 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
       <p class="xhint" data-i18n="Running form and other watch details. They make the daily suggestion more specific.">Running form and other watch details. They make the daily suggestion more specific.</p>
       <div class="fgrid" id="aExtra"></div>
     </details>
-    <label class="full"><b data-i18n="Note">Note</b><textarea id="aNote" rows="2" placeholder="How did it feel? Splits, weather…" data-i18n-ph="How did it feel? Splits, weather…"></textarea></label>
+    <label class="full"><b data-i18n="Note">Note</b><textarea id="aNote" rows="2" maxlength="300" placeholder="How did it feel? Splits, weather…" data-i18n-ph="How did it feel? Splits, weather…"></textarea></label>
     <label class="addphoto" id="aShotLabel"><input type="file" accept="image/*" id="aShot" hidden><span id="aShotText" data-i18n="📷 Fill from a watch screenshot">📷 Fill from a watch screenshot</span></label>
     <div class="actions">
       <button type="button" class="ghost" id="aDelete" data-i18n="Delete">Delete</button>

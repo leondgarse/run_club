@@ -445,14 +445,14 @@ const EXTRA_FIELDS = [
   ["elev_m", "Elevation gain", "m", "12", "numeric"],
   ["training_load", "Training load", "", "120", "numeric"],
   ["start", "Start time", "hh:mm", "06:30", "numeric"],
-  ["weather", "Weather", "", "28°C, humid", "text"],
-  ["splits", "Km splits", "", "5:45 5:40 5:38 …", "text", true],
-  ["split_hr", "Split HR", "", "150 156 160 …", "text", true],
+  ["weather", "Weather", "", "28°C humid", "text", false, 30],
+  ["splits", "Km splits", "", "5:45 5:40 5:38", "numeric", true, 200],
+  ["split_hr", "Split HR", "", "150 156 160", "numeric", true, 120],
 ];
 function renderExtraFields() {
   const vals = Object.fromEntries(EXTRA_FIELDS.map(([k]) => [k, $(`#ax_${k}`)?.value || ""]));
-  $("#aExtra").innerHTML = EXTRA_FIELDS.map(([k, label, unit, ph, mode, full]) =>
-    `<label${full ? ' class="span2"' : ""}>${tr(label)}${unit ? ` <span>${tr(unit)}</span>` : ""}<input id="ax_${k}" inputmode="${mode}" placeholder="${ph}" value="${esc(vals[k])}"></label>`).join("");
+  $("#aExtra").innerHTML = EXTRA_FIELDS.map(([k, label, unit, ph, mode, full, max]) =>
+    `<label${full ? ' class="span2"' : ""}>${tr(label)}${unit ? ` <span>${tr(unit)}</span>` : ""}<input id="ax_${k}" inputmode="${mode}" placeholder="${ph}"${max ? ` maxlength="${max}"` : ""} value="${esc(vals[k])}"></label>`).join("");
 }
 renderExtraFields();
 const parseExtra = (a) => { try { return a?.extra ? JSON.parse(a.extra) : {}; } catch { return {}; } };

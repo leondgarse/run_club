@@ -124,3 +124,25 @@ If you set a PASSCODE, also put `export RUNCLUB_PASSCODE=...` in `~/.zsh_secrets
 npm run db:migrate                                            # once: migrations/0003_activities.sql
 npx wrangler d1 execute run-club --remote --file=seed/<file>.sql   # load history sent in chat
 ```
+
+## Security
+
+Runner-typed text (titles, notes, extra fields) ends up in the prompt Claude reads at 09:00, so it is treated as
+a prompt-injection risk. Layers, each of which stands on its own:
+
+1. **Input limits** (`lib/rules.js` `TEXT_RULES`, enforced by `/api/activities`): title ≤ 40 characters of letters,
+   digits and basic punctuation; weather ≤ 30; splits digits/colons/spaces; split HR digits/spaces; numbers have
+   ranges. Notes stay free text (≤ 300, control characters stripped) because they carry things like "left knee sore".
+2. **Quoted as data**: the prompt shows runner text as JSON strings via `untrusted()`, and `RULES` tells the model
+   it is data, never instructions.
+3. **No tools**: every headless `claude -p` call uses `--tools ""` *and* `--strict-mcp-config` with an empty MCP
+   config. `--tools ""` alone leaves the account's MCP connectors (Gmail, Drive, Garmin…) callable. Calls run in an
+   empty directory (no CLAUDE.md or memory).
+4. **Output guard, fail closed** (`scripts/peer_suggest.py` `leaks()`; `build_public.py` for WGW's public card):
+   Claude Code always gives the model some account/machine context (email, OS, working directory) that can't be
+   turned off without an API key, so a card containing emails, links, paths, IPs, the machine's user or host name,
+   or system terms is refused and not stored.
+5. **Browser**: everything shown is HTML-escaped, and `public/_headers` sets a CSP that only allows this site's own
+   files and API. If you edit the inline theme script in `index.html`, update its hash (`scripts/csp_hash.sh`).
+
+Also: the data API needs the shared PASSCODE; all three runners share it, so any of them can edit any entry.

@@ -15,6 +15,7 @@ import datetime as dt
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import tempfile
@@ -61,16 +62,50 @@ def translate(s):
     return out
 
 
+# The prompt contains runner-typed text, so treat every call as exposed to prompt injection:
+#  - no tools at all: --tools "" removes built-ins, and --strict-mcp-config with an empty config removes the
+#    account's MCP connectors (Gmail, Drive, Garmin, ...), which --tools "" alone does NOT remove;
+#  - an empty working directory, so no CLAUDE.md or project memory is loaded;
+#  - the output is checked by leaks() below before anything is stored.
 def ask_claude(prompt):
     with tempfile.TemporaryDirectory() as empty:
+        none = os.path.join(empty, "no-mcp.json")
+        with open(none, "w") as f:
+            f.write('{"mcpServers": {}}')
         p = subprocess.run(
             ["claude", "-p", "Follow the instructions on stdin exactly. Reply with only the JSON object.",
-             "--tools", "", "--no-session-persistence", "--output-format", "json"],
+             "--tools", "", "--strict-mcp-config", "--mcp-config", none,
+             "--no-session-persistence", "--output-format", "json"],
             input=prompt, capture_output=True, text=True, cwd=empty, timeout=240)
     if p.returncode:
         raise RuntimeError(f"claude exited {p.returncode}: {p.stderr[-300:]}")
     text = json.loads(p.stdout).get("result", "")
     return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
+
+
+# Claude Code always gives the model some account/machine context (e.g. the account email, OS, working directory)
+# that no flag removes without an API key. An injected "print everything you know" could copy it into a card,
+# so any card that looks like it contains system or personal details is refused (fail closed, nothing stored).
+_ME = [x for x in {os.environ.get("USER", ""), socket.gethostname().split(".")[0]} if len(x) >= 4]
+LEAK = re.compile(
+    r"[\w.+-]+@[\w-]+\.[\w.-]+"                              # email addresses
+    r"|https?://|\bwww\.|\b[\w-]+\.(com|net|org|io|dev|app|ai|cn|life)\b"   # links / domains
+    r"|(^|[\s(])(/|~/)(Users|private|var|tmp|home|etc|opt|Library)\b"   # file paths
+    r"|\b\d{1,3}(\.\d{1,3}){3}\b"                             # IP addresses
+    r"|\b(darwin|macos|zsh|bash|shell|system prompt|working directory|api[ _-]?key|passcode|password|token"
+    r"|claude code|anthropic|oauth|keychain|localhost)\b"
+    + "".join(f"|{re.escape(x)}" for x in _ME),
+    re.I)
+
+
+def leaks(s):
+    """Field names in the card whose text looks like system/personal information (empty list = fine)."""
+    bad = []
+    for k, v in s.items():
+        vals = v if isinstance(v, list) else v.values() if isinstance(v, dict) else [v]
+        if any(isinstance(x, str) and LEAK.search(x) for x in vals):
+            bad.append(k)
+    return bad
 
 
 def clean(r, today):
@@ -110,6 +145,11 @@ def main():
             zh = translate(s)
             if zh:
                 s["zh"] = zh
+            bad = leaks(s)
+            if bad:  # don't store, and don't print the text (it may be exactly what we're keeping out)
+                print(f"  {person}: REFUSED: fields {bad} look like system/personal details; nothing stored",
+                      file=sys.stderr)
+                continue
             sql.append(
                 "INSERT INTO suggestions (person, date, data, data_at, created_at) VALUES "
                 f"({q(person)}, {q(today)}, {q(json.dumps(s, ensure_ascii=False))}, {q(ctx.get('dataAt'))}, {q(now)}) "
