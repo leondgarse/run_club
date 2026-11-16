@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Running Week</title>
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--line:#262a33;--text:#e8eaee;--mute:#9aa1ad;
+    --e:#3fb97a;--t:#e8a23a;--l:#4aa3df}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC",sans-serif}
+  .wrap{max-width:400px;margin:0 auto;padding:18px 14px 28px}
+  h1{font-size:22px;margin:0 0 2px;letter-spacing:-.2px}
+  .sub{color:var(--mute);font-size:12.5px;margin-bottom:16px}
+  .run{display:flex;gap:12px;align-items:stretch;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:12px;margin-bottom:10px;cursor:pointer;user-select:none;transition:opacity .15s}
+  .bar{flex:0 0 5px;border-radius:3px}
+  .E .bar{background:var(--e)} .T .bar{background:var(--t)} .L .bar{background:var(--l)}
+  .body{flex:1}
+  .top{display:flex;justify-content:space-between;align-items:baseline}
+  .day{font-size:16px;font-weight:700}
+  .kind{font-size:11.5px;text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+  .E .kind{color:var(--e)} .T .kind{color:var(--t)} .L .kind{color:var(--l)}
+  .chips{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .chip{background:#22262f;border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-size:13px;
+    font-weight:600;font-variant-numeric:tabular-nums}
+  .chip small{color:var(--mute);font-weight:400;margin-right:4px}
+  .box{flex:0 0 24px;height:24px;border:2px solid #4a505c;border-radius:7px;align-self:center;
+    display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;color:#111}
+  .run.done{opacity:.55}
+  .run.done .box{background:var(--e);border-color:var(--e)}
+  .run.done .box::after{content:"✓"}
+  .foot{color:var(--mute);font-size:11.5px;text-align:center;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>My Running Week</h1>
+  <div class="sub">3 runs · tap to tick off</div>
+
+  <div class="run E" onclick="this.classList.toggle('done')">
+    <div class="bar"></div>
+    <div class="body">
+      <div class="top"><span class="day">Wed</span><span class="kind">Easy</span></div>
+      <div class="chips">
+        <span class="chip"><small>pace</small>≤ 6:00</span>
+        <span class="chip"><small>HR</small>≤ 150</span>
+      </div>
+    </div>
+    <div class="box"></div>
+  </div>
+
+  <div class="run T" onclick="this.classList.toggle('done')">
+    <div class="bar"></div>
+    <div class="body">
+      <div class="top"><span class="day">Sat</span><span class="kind">Tempo</span></div>
+      <div class="chips">
+        <span class="chip"><small>pace</small>5:00</span>
+        <span class="chip"><small>HR</small>170+</span>
+      </div>
+    </div>
+    <div class="box"></div>
+  </div>
+
+  <div class="run L" onclick="this.classList.toggle('done')">
+    <div class="bar"></div>
+    <div class="body">
+      <div class="top"><span class="day">Sun</span><span class="kind">Long · Easy</span></div>
+      <div class="chips">
+        <span class="chip"><small>time</small>30–40 min</span>
+        <span class="chip"><small>HR</small>strictly ≤ 140</span>
+      </div>
+    </div>
+    <div class="box"></div>
+  </div>
+
+  <div class="foot">Pace in min/km · HR in bpm</div>
+</div>
+</body>
+</html>

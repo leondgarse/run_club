@@ -1,0 +1,15 @@
+{
+  "name": "run-club",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "db:init:local": "wrangler d1 execute run-club --local --file=schema.sql",
+    "db:init": "wrangler d1 execute run-club --remote --file=schema.sql",
+    "deploy": "wrangler pages deploy",
+    "db:migrate": "wrangler d1 execute run-club --remote --file=migrations/0003_activities.sql",
+    "db:migrate:local": "wrangler d1 execute run-club --local --file=migrations/0003_activities.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

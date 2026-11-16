@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Run Club">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<title>Run Club</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#181b22; --card2:#1f232c; --line:#262a33; --text:#e8eaee; --mute:#9aa1ad;
+    --ok:#3fb97a; --accent:#e8eaee;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--text)}
+  body{font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC",sans-serif;
+    padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+  button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+  .wrap{max-width:480px;margin:0 auto;padding:0 16px}
+
+  /* Header */
+  header{position:sticky;top:0;z-index:5;background:rgba(15,17,21,.92);backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+  .bar1{display:flex;align-items:center;justify-content:space-between;padding:10px 0 8px}
+  .brand{font-weight:800;font-size:18px;letter-spacing:-.2px}
+  .weeknav{display:flex;align-items:center;gap:2px}
+  .weeknav button{min-width:40px;height:36px;border-radius:10px;font-size:18px;color:var(--mute)}
+  .weeknav button:active{background:var(--card)}
+  #weekLabel{font-size:13.5px;font-weight:600;color:var(--text);padding:0 6px;min-width:0;font-variant-numeric:tabular-nums}
+  #weekLabel small{display:block;font-size:10.5px;font-weight:500;color:var(--mute);text-align:center;line-height:1.1}
+  .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:0 0 10px}
+  .tab{height:40px;border-radius:11px;background:var(--card);border:1px solid var(--line);font-weight:700;font-size:14px;
+    display:flex;align-items:center;justify-content:center;gap:6px;color:var(--mute)}
+  .tab .dot{width:8px;height:8px;border-radius:50%}
+  .tab[aria-selected="true"]{color:var(--text);border-color:var(--c,#555);background:var(--card2);
+    box-shadow:inset 0 -2px 0 var(--c,#888)}
+
+  /* Person view */
+  .hero{padding:16px 0 6px}
+  .hero h1{font-size:22px;margin:0;letter-spacing:-.2px}
+  .hero .sub{color:var(--mute);font-size:13px}
+  .progress{display:flex;align-items:center;gap:10px;margin:12px 0 4px}
+  .track{flex:1;height:8px;background:var(--card2);border-radius:99px;overflow:hidden}
+  .fill{height:100%;border-radius:99px;transition:width .3s ease}
+  .progress b{font-size:14px;font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+
+  .dayrow{display:flex;gap:10px;margin-top:10px}
+  .date{flex:0 0 38px;text-align:center;padding-top:10px}
+  .date b{display:block;font-size:17px;line-height:1.1}
+  .date span{color:var(--mute);font-size:11.5px}
+  .dayrow.today .date b,.dayrow.today .date span{color:var(--c)}
+  .stack{flex:1;display:flex;flex-direction:column;gap:6px;min-width:0}
+  .run{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);
+    border-radius:14px;padding:12px;min-height:60px;transition:opacity .15s,transform .08s;user-select:none}
+  .run:active{transform:scale(.985)}
+  .run .cbar{align-self:stretch;flex:0 0 4px;border-radius:3px}
+  .run .body{flex:1;min-width:0}
+  .run .kind{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;font-weight:700}
+  .run .title{font-size:15px;font-weight:700}
+  .run .meta{color:var(--mute);font-size:12.5px;margin-top:1px;font-variant-numeric:tabular-nums}
+  .box{flex:0 0 28px;height:28px;border:2px solid #4a505c;border-radius:8px;display:flex;align-items:center;justify-content:center}
+  .box svg{width:16px;height:16px;opacity:0}
+  .run.done{opacity:.55}
+  .run.done .box{background:var(--ok);border-color:var(--ok)}
+  .run.done .box svg{opacity:1}
+  .run.done .title{text-decoration:line-through;text-decoration-color:rgba(255,255,255,.35)}
+  .run.missed{opacity:.5;border-style:dashed}
+  .run.missed .title,.run.missed .meta{text-decoration:line-through;text-decoration-color:#e5604d;text-decoration-thickness:2px}
+  .run .mtag{margin-left:8px;color:#e5604d;letter-spacing:.5px}
+  .rest{color:var(--mute);font-size:13.5px;padding:12px;border:1px dashed var(--line);border-radius:14px}
+
+  details.notes{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:0 12px}
+  details.notes summary{padding:12px 0;font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.7px;color:var(--mute);cursor:pointer;list-style:none}
+  details.notes summary::after{content:"▾";float:right}
+  details.notes[open] summary::after{content:"▴"}
+  .pace{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:13.5px}
+  .pace .tg{flex:0 0 26px;height:22px;border-radius:6px;font-weight:800;font-size:12px;color:#111;display:flex;align-items:center;justify-content:center}
+  .pace .nm{flex:1}
+  .pace .v{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+  .pace .v small{display:block;color:var(--mute);font-weight:400;font-size:11px}
+  .notes p{color:var(--mute);font-size:12.5px;margin:8px 0}
+  .notes p:last-child{margin-bottom:12px}
+
+  .empty{margin-top:24px;padding:28px 16px;text-align:center;color:var(--mute);border:1px dashed var(--line);border-radius:14px}
+
+  /* Board */
+  .section{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mute);font-weight:700;margin:20px 0 8px}
+  .pcard{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:8px}
+  .pcard .top{display:flex;align-items:baseline;justify-content:space-between}
+  .pcard .name{font-weight:800;font-size:16px;display:flex;align-items:center;gap:8px}
+  .pcard .name i{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .pcard .cnt{font-variant-numeric:tabular-nums;font-weight:700}
+  .pcard .cnt small{color:var(--mute);font-weight:500}
+  .pcard .blurb{color:var(--mute);font-size:12px}
+  .pips{display:flex;gap:5px;margin-top:10px;flex-wrap:wrap}
+  .pip{min-width:34px;height:26px;padding:0 6px;border-radius:7px;border:1px solid var(--line);background:var(--card2);
+    font-size:11px;font-weight:700;color:var(--mute);display:flex;align-items:center;justify-content:center}
+  .pip.done{background:var(--ok);border-color:var(--ok);color:#0f1115}
+  .pip.miss{border-color:#5a2a26;color:#e5604d}
+  .pip.next{border-color:var(--c);color:var(--text)}
+
+  table.hist{width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0 6px;font-variant-numeric:tabular-nums}
+  .hist th{font-size:11px;color:var(--mute);font-weight:600;text-align:center;padding:0 2px}
+  .hist th:first-child{text-align:left;width:52px}
+  .hist td{text-align:center;padding:0 2px}
+  .hist td:first-child{text-align:left;font-weight:800;font-size:14px;white-space:nowrap}
+  .cell{height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;background:var(--card)}
+  .bweek{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;margin-top:10px;font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+  .bweek b{color:var(--text);font-size:13px}
+  .bweek span{display:inline-flex;align-items:center;gap:4px}
+  .bweek i{width:8px;height:8px;border-radius:2px;display:inline-block}
+  .btoday{margin-top:8px;font-size:13px;line-height:1.35;color:var(--text);border-left:3px solid var(--k);padding-left:8px}
+  .btoday b{color:var(--k);font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-right:6px}
+  .cell{flex-direction:column;line-height:1.1}
+  .cell small{font-size:10px;font-weight:600;opacity:.75}
+  .cmute{color:var(--mute);font-size:13.5px;margin-top:6px}
+  .legend{color:var(--mute);font-size:11.5px;margin-top:4px}
+
+  .status{color:var(--mute);font-size:11.5px;text-align:center;margin-top:22px}
+
+  /* WGW: daily suggestion + Garmin summary */
+  .sugg{margin-top:16px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:14px;padding:12px 14px}
+  .shead{display:flex;justify-content:space-between;align-items:center;font-size:11px;text-transform:uppercase;letter-spacing:.7px;font-weight:700;color:var(--mute)}
+  .shead .call{color:#0f1115;background:var(--c);border-radius:6px;padding:2px 8px;font-size:11px;letter-spacing:.5px}
+  .stitle{font-size:16px;font-weight:700;margin-top:6px}
+  .ssess{font-size:13.5px;font-weight:600;color:var(--c);margin-top:3px;font-variant-numeric:tabular-nums}
+  .sugg p{margin:8px 0 0;font-size:13.5px}
+  .sugg .smute{color:var(--mute);font-size:12.5px}
+  .sugg .syest{margin:8px 0 2px;padding-bottom:8px;border-bottom:1px solid var(--line);font-size:13px;color:var(--mute)}
+  .shead .sby{margin-left:8px;text-transform:none;letter-spacing:0;font-weight:500;font-size:11px;opacity:.8}
+  .sugg .snum{margin-top:8px;font-size:12.5px}
+  .sugg .snum summary{cursor:pointer;font-weight:700;color:var(--c);font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+  .sugg .snum ul{margin:6px 0 4px;padding-left:16px;font-variant-numeric:tabular-nums}
+  .sugg .snum li{margin-bottom:3px}
+  .sugg .snum .smute{font-size:11px}
+  .sugg .ssci{font-size:13px;border-left:2px solid var(--c);padding-left:8px}
+  .sugg .ssci b{color:var(--c);margin-right:4px}
+  .sugg .sform{font-size:13px;background:var(--card2);border-radius:9px;padding:7px 9px}
+  .sugg .sform b{color:var(--c);margin-right:4px}
+  .sugg .syest b{color:var(--text);font-weight:700;margin-right:4px}
+  .wcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+  .calscroll{overflow-x:auto}
+  .wcal{display:grid;grid-auto-flow:column;grid-template-rows:13px repeat(7,13px);gap:3px;width:max-content}
+  .cm{font-size:9.5px;color:var(--mute);white-space:nowrap;line-height:13px}
+  .cd{width:13px;height:13px;border-radius:3px;background:var(--card2);position:relative}
+  .cd i{position:absolute;width:6px;height:6px;border-radius:50%;right:0;bottom:0;outline:1.5px solid var(--card)}
+  .cd i.solo{width:7px;height:7px;right:3px;bottom:3px;outline:none}
+  .wkey{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:10px;font-size:11.5px;color:var(--mute)}
+  .wkey span{display:inline-flex;align-items:center;gap:5px}
+  .wkey i{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .wkey i.dot{border-radius:50%}
+  .wbars{display:flex;align-items:flex-end;gap:5px;height:130px}
+  .wb{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;min-width:0}
+  .wstack{flex:1;width:100%;display:flex;flex-direction:column-reverse;border-radius:4px;overflow:hidden}
+  .wstack span{display:block;width:100%}
+  .wb small{font-size:9.5px;color:var(--mute);font-variant-numeric:tabular-nums}
+
+  /* Passcode + toast */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:20;padding:16px}
+  .modal.show{display:flex}
+  .sheet{width:100%;max-width:340px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
+  .sheet h2{margin:0 0 4px;font-size:18px}
+  .sheet p{margin:0 0 12px;color:var(--mute);font-size:13px}
+  .sheet input{width:100%;height:46px;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:0 12px;font-size:16px}
+  .sheet button{margin-top:10px;width:100%;height:46px;border-radius:11px;background:var(--ok);color:#0f1115;font-weight:800}
+  .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
+    background:#2a2f3a;border:1px solid var(--line);padding:10px 14px;border-radius:12px;font-size:13.5px;opacity:0;transition:.2s;pointer-events:none;z-index:30}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* Logged details on a card */
+  .run .logged{margin-top:6px;font-size:12.5px;font-weight:600;color:var(--ok);font-variant-numeric:tabular-nums}
+  .run.done{opacity:.72}
+
+  /* Log sheet */
+  body.noscroll{overflow:hidden}
+  .modal.bottom{align-items:flex-end;padding:0}
+  .sheet.log{max-width:480px;border-radius:18px 18px 0 0;border-bottom:0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+    max-height:92vh;overflow-y:auto;animation:up .2s ease}
+  @keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+  .lhead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:12px}
+  .lkind{font-size:11px;text-transform:uppercase;letter-spacing:.7px;font-weight:700}
+  .lhead h2{margin:2px 0 0;font-size:18px}
+  .sheet .x{width:36px;height:36px;margin:0;border-radius:10px;background:var(--card2);color:var(--mute);font-size:15px;flex:0 0 36px}
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .sheet label{display:block;font-size:12px;font-weight:600;color:var(--mute)}
+  .sheet label span{font-weight:400;opacity:.7}
+  .sheet label input,.sheet textarea{margin-top:4px}
+  .sheet textarea{width:100%;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:10px 12px;font:inherit;font-size:16px;resize:vertical}
+  .sheet label.full{margin-top:10px}
+  #photoBox{margin-top:12px}
+  .addphoto{display:flex !important;align-items:center;justify-content:center;height:52px;border:1px dashed #3a404c;border-radius:12px;
+    color:var(--text) !important;font-size:14px !important;cursor:pointer}
+  .thumb{border-radius:12px;overflow:hidden;background:var(--bg);border:1px solid var(--line)}
+  .thumb img{display:block;width:100%;max-height:300px;object-fit:contain}
+  .thumb .ph{height:80px;display:flex;align-items:center;justify-content:center;color:var(--mute);font-size:13px}
+  .photobtns{display:grid;grid-template-columns:2fr 1fr;gap:8px}
+  .sheet button.ghost{background:var(--card2);color:var(--text);font-weight:600}
+  .photobtns button{height:42px;margin-top:8px;font-size:14px}
+  .photobtns button:first-child{background:#2b2540;color:#d9c8ff;font-weight:700}
+  .actions{display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:14px}
+  .actions button{margin-top:0}
+  .sheet button:disabled{opacity:.6}
+
+  /* TJH / SJH: own log */
+  .secrow{display:flex;justify-content:space-between;align-items:center}
+  .addact{height:30px;padding:0 12px;border-radius:9px;background:var(--card2);color:var(--text);font-size:12.5px;font-weight:700;
+    text-transform:none;letter-spacing:0;border:1px solid var(--line)}
+  .acts{display:flex;flex-direction:column;gap:6px}
+  .act{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);
+    border-radius:12px;padding:10px 12px;color:var(--text)}
+  .adot{width:9px;height:9px;border-radius:50%;flex:0 0 9px}
+  .abody{display:flex;flex-direction:column;min-width:0}
+  .abody b{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .abody small{font-size:12px;color:var(--mute);font-variant-numeric:tabular-nums}
+  .acts .more{height:34px;border-radius:10px;background:transparent;color:var(--mute);font-size:12.5px;font-weight:600}
+  .sheet select{width:100%;height:46px;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--text);
+    padding:0 10px;font-size:16px;margin-top:4px}
+  .sheet input[type=date]{-webkit-appearance:none;appearance:none}
+  #aShotLabel{margin-top:12px}
+  #aDelete[hidden]+button{grid-column:1/-1}
+  .xmore{margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:0 12px}
+  .xmore summary{height:44px;display:flex;align-items:center;justify-content:space-between;font-size:14px;font-weight:700;cursor:pointer;list-style:none}
+  .xmore summary::-webkit-details-marker{display:none}
+  .xmore summary::after{content:"▾";color:var(--mute);margin-left:8px}
+  .xmore[open] summary::after{content:"▴"}
+  .xmore summary span{margin-left:auto;font-size:12px;font-weight:500;color:var(--mute)}
+  .xmore .xhint{margin:0 0 10px;font-size:12px;color:var(--mute)}
+  .xmore .fgrid{padding-bottom:12px}
+  .fgrid .span2{grid-column:1/-1}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="bar1">
+      <div class="brand">🏃 Run Club</div>
+      <div class="weeknav">
+        <button id="prev" aria-label="Previous week">‹</button>
+        <button id="weekLabel" aria-label="Jump to this week"></button>
+        <button id="next" aria-label="Next week">›</button>
+      </div>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+  </div>
+</header>
+
+<main class="wrap" id="main"></main>
+<div class="wrap"><div class="status" id="status"></div></div>
+
+<div class="modal" id="lock">
+  <form class="sheet" id="lockForm">
+    <h2>Passcode</h2>
+    <p>Ask the group for the Run Club passcode. You only need to enter it once per device.</p>
+    <input id="lockInput" type="password" autocomplete="current-password" inputmode="text" placeholder="Passcode">
+    <button type="submit">Unlock</button>
+  </form>
+</div>
+<div class="modal bottom" id="logSheet">
+  <form class="sheet log" id="logForm" autocomplete="off">
+    <div class="lhead">
+      <div><div class="lkind" id="logKind"></div><h2 id="logTitle"></h2></div>
+      <button type="button" class="x" id="logClose" aria-label="Close">✕</button>
+    </div>
+    <div class="fgrid">
+      <label>Distance <span>km</span><input id="fKm" inputmode="decimal" placeholder="5.5"></label>
+      <label>Time <span>h:mm:ss</span><input id="fTime" inputmode="numeric" placeholder="32:10"></label>
+      <label>Avg pace <span>/km</span><input id="fPace" inputmode="numeric" placeholder="auto"></label>
+      <label>Avg HR <span>bpm</span><input id="fHr" inputmode="numeric" placeholder="148"></label>
+    </div>
+    <label class="full">Note<textarea id="fNote" rows="2" placeholder="How did it feel?"></textarea></label>
+    <div id="photoBox"></div>
+    <div class="actions">
+      <button type="button" class="ghost" id="logUndo">Un-tick</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+  </form>
+</div>
+<div class="modal bottom" id="actSheet">
+  <form class="sheet log" id="actForm" autocomplete="off">
+    <div class="lhead">
+      <div><div class="lkind" id="actKind"></div><h2>Activity</h2></div>
+      <button type="button" class="x" id="actClose" aria-label="Close">✕</button>
+    </div>
+    <div class="fgrid">
+      <label>Date<input id="aDate" type="date" required></label>
+      <label>Type<select id="aType">
+        <option value="run">Run</option><option value="gym">Gym</option><option value="swim">Swim</option>
+        <option value="bike">Bike</option><option value="hike">Hike / walk</option><option value="other">Other</option></select></label>
+    </div>
+    <label class="full">Title <span>optional</span><input id="aTitle" placeholder="Easy run" maxlength="80"></label>
+    <div class="fgrid" style="margin-top:10px">
+      <label>Distance <span>km</span><input id="aKm" inputmode="decimal" placeholder="5.0"></label>
+      <label>Time <span>h:mm:ss</span><input id="aTime" inputmode="numeric" placeholder="32:10"></label>
+      <label>Avg pace <span>/km</span><input id="aPace" inputmode="numeric" placeholder="auto"></label>
+      <label>Avg HR <span>bpm</span><input id="aHr" inputmode="numeric" placeholder="148"></label>
+      <label>Cadence <span>spm</span><input id="aCad" inputmode="numeric" placeholder="170"></label>
+    </div>
+    <details class="xmore" id="aMore"><summary>Additional <span id="aExtraN">optional</span></summary>
+      <p class="xhint">Running form and other watch details. They make the daily suggestion more specific.</p>
+      <div class="fgrid" id="aExtra"></div>
+    </details>
+    <label class="full">Note<textarea id="aNote" rows="2" placeholder="How did it feel? Splits, weather…"></textarea></label>
+    <label class="addphoto" id="aShotLabel"><input type="file" accept="image/*" id="aShot" hidden>📷 Fill from a watch screenshot</label>
+    <div class="actions">
+      <button type="button" class="ghost" id="aDelete">Delete</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+  </form>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

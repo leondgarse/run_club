@@ -1,0 +1,877 @@
+import { PEOPLE, planFor } from "./plans.js";
+
+const HISTORY_WEEKS = 5;
+const POLL_MS = 45_000;
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="#0f1115" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+
+// ── small helpers ────────────────────────────────────────────────────────────
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const mondayOf = (d) => { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); return addDays(x, -((x.getDay() + 6) % 7)); };
+const fromIso = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+const person = (id) => PEOPLE.find((p) => p.id === id);
+const qsKey = (p, w, i) => `person=${p}&week=${w}&item=${encodeURIComponent(i)}`;
+
+// Time helpers: accept "32:10", "1:02:30", or digits-only "3210" / "10230"
+function normTime(v, { pace = false } = {}) {
+  v = String(v || "").trim().replace(/[.,'′″\s]+/g, ":");
+  if (!v) return "";
+  if (/^\d+$/.test(v)) {
+    if (v.length <= 2) return pace ? "" : `${+v}:00`; // bare minutes
+    const s = v.slice(-2), rest = v.slice(0, -2);
+    v = rest.length > 2 && !pace ? `${+rest.slice(0, -2)}:${rest.slice(-2)}:${s}` : `${+rest}:${s}`;
+  }
+  const parts = v.split(":").map(Number);
+  if (parts.some(isNaN) || parts.length < 2 || parts.length > (pace ? 2 : 3) || parts.slice(1).some((x) => x > 59)) return null;
+  return parts.map((x, i) => (i === 0 ? String(x) : String(x).padStart(2, "0"))).join(":");
+}
+const toSec = (t) => t.split(":").map(Number).reduce((a, x) => a * 60 + x, 0);
+const fmtPace = (secPerKm) => `${Math.floor(secPerKm / 60)}:${String(Math.round(secPerKm % 60)).padStart(2, "0")}`;
+
+// ── state ────────────────────────────────────────────────────────────────────
+const state = {
+  tab: PEOPLE.some((p) => p.id === store.get("tab")) || store.get("tab") === "board" ? store.get("tab") : PEOPLE[0].id,
+  week: iso(mondayOf(new Date())),
+  done: new Map(), // "TJH|2026-11-16" -> Set(itemId)
+  logs: new Map(), // "TJH|2026-11-16|tue" -> row
+  loaded: new Set(),
+  passcode: store.get("passcode") || "",
+  online: true,
+  lastSync: null,
+  wgw: null, // public Garmin summary for WGW (wgw.json): suggestion, calendar, weekly minutes
+  hist: new Map(), // "SJH" -> { activities, logs, at } (self-logged history, 26 weeks)
+  today: new Map(), // "SJH" -> { suggestion, reason, loading, error, at, dirty }
+};
+const thisWeek = () => iso(mondayOf(new Date()));
+const doneSet = (p, w) => {
+  const k = `${p}|${w}`;
+  if (!state.done.has(k)) state.done.set(k, new Set());
+  return state.done.get(k);
+};
+const logOf = (p, w, i) => state.logs.get(`${p}|${w}|${i}`);
+
+// ── API ──────────────────────────────────────────────────────────────────────
+let unlockWaiters = [];
+async function request(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { "x-passcode": state.passcode, ...(opts.body && !(opts.body instanceof Blob) ? { "content-type": "application/json" } : {}), ...(opts.headers || {}) },
+  });
+  if (res.status === 401) {
+    showLock();
+    await new Promise((r) => unlockWaiters.push(r));
+    return request(path, opts);
+  }
+  return res;
+}
+async function api(path, opts) {
+  const res = await request(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+async function load(from, to) {
+  try {
+    const { rows } = await api(`/api/progress?from=${from}&to=${to}`);
+    for (let w = fromIso(from); iso(w) <= to; w = addDays(w, 7)) {
+      for (const p of PEOPLE) {
+        doneSet(p.id, iso(w)).clear();
+        for (const k of [...state.logs.keys()]) if (k.startsWith(`${p.id}|${iso(w)}|`)) state.logs.delete(k);
+      }
+      state.loaded.add(iso(w));
+    }
+    for (const r of rows) {
+      doneSet(r.person, r.week).add(r.item);
+      state.logs.set(`${r.person}|${r.week}|${r.item}`, r);
+    }
+    state.online = true;
+    state.lastSync = new Date();
+  } catch {
+    state.online = false;
+  }
+  render();
+}
+const historyRange = () => [iso(addDays(fromIso(state.week), -7 * (HISTORY_WEEKS - 1))), state.week];
+const refresh = () => load(...historyRange());
+
+async function setDone(p, w, item, done) {
+  const set = doneSet(p, w);
+  const prevLog = logOf(p, w, item);
+  done ? set.add(item) : (set.delete(item), state.logs.delete(`${p}|${w}|${item}`));
+  if (done && navigator.vibrate) navigator.vibrate(12);
+  render();
+  try {
+    const r = await api("/api/progress", { method: "POST", body: JSON.stringify({ person: p, week: w, item, done }) });
+    if (r.row) state.logs.set(`${p}|${w}|${item}`, r.row);
+    state.online = true;
+    dataChanged(p);
+    return true;
+  } catch {
+    done ? set.delete(item) : (set.add(item), prevLog && state.logs.set(`${p}|${w}|${item}`, prevLog));
+    state.online = false;
+    toast("Couldn't save — check your connection");
+    render();
+    return false;
+  }
+}
+
+// ── status helpers ───────────────────────────────────────────────────────────
+const todayIndex = () => (new Date().getDay() + 6) % 7;
+function itemStatus(week, it, isDone) {
+  if (isDone) return "done";
+  const cur = thisWeek();
+  if (week < cur) return "miss";
+  if (week > cur) return "todo";
+  if (it.dayIndex < todayIndex()) return "miss";
+  if (it.dayIndex === todayIndex()) return "next";
+  return "todo";
+}
+function summary(p, w) {
+  const plan = planFor(p, w);
+  if (plan.empty) return null;
+  const items = plan.items.filter((i) => !i.rest);
+  const set = doneSet(p, w);
+  const done = items.filter((i) => set.has(i.id)).length;
+  const km = items.reduce((a, i) => a + (set.has(i.id) ? Number(logOf(p, w, i.id)?.km) || 0 : 0), 0);
+  return { plan, items, done, total: items.length, pct: items.length ? done / items.length : 0, km };
+}
+const loggedLine = (l) => !l ? "" : [
+  l.km && `${l.km} km`, l.duration, l.pace && `${l.pace}/km`, l.hr && `♥ ${l.hr}`, l.has_photo ? "📷" : "", l.note ? "💬" : "",
+].filter(Boolean).join(" · ");
+
+// ── rendering ────────────────────────────────────────────────────────────────
+function renderHeader() {
+  const mon = fromIso(state.week);
+  const sun = addDays(mon, 6);
+  const cur = thisWeek();
+  const rel = state.week === cur ? "This week" : state.week === iso(addDays(fromIso(cur), -7)) ? "Last week"
+    : state.week === iso(addDays(fromIso(cur), 7)) ? "Next week" : "Tap for this week";
+  $("#weekLabel").innerHTML = `${md(mon)} – ${md(sun)}<small>${rel}</small>`;
+
+  const tabs = [...PEOPLE.map((p) => ({ id: p.id, label: p.id, color: p.color })), { id: "board", label: "📊 All", color: "#e8eaee" }];
+  $("#tabs").innerHTML = tabs.map((t) => `
+    <button class="tab" role="tab" data-tab="${t.id}" aria-selected="${state.tab === t.id}" style="--c:${t.color}">
+      ${t.id !== "board" ? `<span class="dot" style="background:${t.color}"></span>` : ""}${esc(t.label)}
+    </button>`).join("");
+}
+
+function renderPerson(pid) {
+  const p = person(pid);
+  const s = summary(pid, state.week);
+  if (!s) {
+    const plan = planFor(pid, state.week);
+    let html = `<div class="hero"><h1>${esc(pid)}</h1><div class="sub">${esc(p.blurb)}</div></div>
+      <div class="empty">${esc(plan.empty)}</div>`;
+    if (pid !== "WGW") html += (state.week === thisWeek() ? renderToday(pid, p.color) : "") + renderSelfLog(pid, p.color);
+    return html;
+  }
+  const { plan, done, total, pct, km } = s;
+  const set = doneSet(pid, state.week);
+  const mon = fromIso(state.week);
+  const isCur = state.week === thisWeek();
+
+  let html = `<div class="hero" style="--c:${p.color}">
+      <h1>${esc(plan.title)}</h1><div class="sub">${esc(pid)} · ${esc(plan.sub)}</div>
+      <div class="progress"><div class="track"><div class="fill" style="width:${pct * 100}%;background:${pct === 1 ? "var(--ok)" : p.color}"></div></div>
+      <b>${done}/${total}</b></div>
+      ${km ? `<div class="sub">${Math.round(km * 10) / 10} km logged</div>` : ""}
+    </div>`;
+
+  const byDay = new Map();
+  for (const it of plan.items) {
+    if (!byDay.has(it.dayIndex)) byDay.set(it.dayIndex, []);
+    byDay.get(it.dayIndex).push(it);
+  }
+  for (const [di, items] of [...byDay].sort((a, b) => a[0] - b[0])) {
+    const date = addDays(mon, di);
+    const today = isCur && di === todayIndex();
+    html += `<div class="dayrow${today ? " today" : ""}" style="--c:${p.color}">
+      <div class="date"><b>${date.getDate()}</b><span>${today ? "Today" : DAYS[di]}</span></div><div class="stack">`;
+    for (const it of items) {
+      if (it.rest) { html += `<div class="rest">${esc(it.title)}</div>`; continue; }
+      const d = set.has(it.id);
+      const missed = itemStatus(state.week, it, d) === "miss"; // day has passed, not ticked
+      const logged = d ? loggedLine(logOf(pid, state.week, it.id)) : "";
+      html += `<button class="run${d ? " done" : ""}${missed ? " missed" : ""}" data-item="${it.id}" aria-pressed="${d}"${missed ? ' aria-label="Missed: ' + esc(it.title) + '"' : ""}>
+          <span class="cbar" style="background:${it.color}"></span>
+          <span class="body"><div class="kind" style="color:${it.color}">${esc(it.kind)}${missed ? '<span class="mtag">Missed</span>' : ""}</div>
+            <div class="title">${esc(it.title)}</div>${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
+            ${d ? `<div class="logged">${logged ? esc(logged) : "+ add details"}</div>` : ""}</span>
+          <span class="box">${CHECK}</span></button>`;
+    }
+    html += `</div></div>`;
+  }
+
+  if (plan.notes) {
+    const n = plan.notes;
+    html += `<details class="notes"${store.get("notesOpen") === "1" ? " open" : ""}><summary>${esc(n.title)}</summary>
+      ${n.rows.map(([tg, c, nm, v, sm]) => `<div class="pace"><span class="tg" style="background:${c}">${tg}</span>
+        <span class="nm">${esc(nm)}</span><span class="v">${esc(v)}<small>${esc(sm)}</small></span></div>`).join("")}
+      ${n.text.map((t) => `<p>${esc(t)}</p>`).join("")}</details>`;
+  }
+  if (pid === "WGW" && isCur) html += renderSuggestion(p.color);
+  if (pid !== "WGW" && isCur) html += renderToday(pid, p.color);
+
+  html += pid === "WGW" ? renderWgwDash() : renderSelfLog(pid, p.color);
+  return html;
+}
+
+// ── WGW: daily suggestion + public Garmin summary (wgw.json, rebuilt each morning) ──
+const WGW_COLORS = { push: "#e8a23a", pull: "#4aa3df", legs: "#b072e0", reinforce: "#7d8593", unlogged: "#3a404b", gym: "#4aa3df",
+  run: "#3fb97a", swim: "#4cc0e6", bike: "#9bc25a", hike: "#c49a68", other: "#7d8593" };
+const CALL_LABEL = { rest: "Rest", easy: "Easy", planned: "As planned", quality: "Quality", gym: "Gym", cross: "Cross-train" };
+const CALL_COLOR = { rest: "#e5604d", easy: "#3fb97a", planned: "#4aa3df", quality: "#e8a23a", gym: "#b072e0", cross: "#4cc0e6" };
+let wgwLoadedAt = 0;
+
+async function loadWgw() {
+  if (Date.now() - wgwLoadedAt < 10 * 60_000) return; // the file changes once a day
+  try {
+    const r = await fetch(`/wgw.json?d=${iso(new Date())}`, { cache: "no-store" });
+    if (!r.ok) return;
+    state.wgw = await r.json();
+    wgwLoadedAt = Date.now();
+    if ((state.tab === "WGW" || state.tab === "board") && !sheet.item) render();
+  } catch {}
+}
+
+function renderSuggestion(color) {
+  const s = state.wgw?.suggestion;
+  const today = iso(new Date());
+  if (!s || s.date !== today) {
+    return `<div class="sugg" style="--c:${color}"><div class="shead"><span>Today</span></div>
+      <p class="smute">${state.wgw ? "No suggestion yet today. It's written at 9:00 after the Garmin sync." : "Loading today's suggestion…"}</p></div>`;
+  }
+  const c = CALL_COLOR[s.call] || color;
+  return `<div class="sugg" style="--c:${c}">
+    <div class="shead"><span>Today</span><b class="call">${esc(CALL_LABEL[s.call] || s.call)}</b></div>
+    ${s.yesterday ? `<p class="syest"><b>Yesterday</b> ${esc(s.yesterday)}</p>` : ""}
+    <div class="stitle">${esc(s.headline)}</div>
+    ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
+    ${s.why ? `<p>${esc(s.why)}</p>` : ""}
+    ${s.next ? `<p class="smute">Tomorrow: ${esc(s.next)}</p>` : ""}
+  </div>`;
+}
+
+function renderWgwDash() {
+  const g = state.wgw;
+  if (!g) return "";
+  return renderDash(g, { splits: true, note: `From Garmin, updated ${g.generated}.` });
+}
+
+/** Calendar (26 weeks) + minutes per week. g = { dataThrough, calendar: {date: {gym, cardio[]}}, weekly: [{week, gym, run, ...}] } */
+function renderDash(g, { splits = false, note = "" } = {}) {
+  const end = fromIso(g.dataThrough);
+  const start = addDays(mondayOf(end), -7 * 25); // 26 weeks
+  let cal = "", lastMonth = -1;
+  for (let w = new Date(start); w <= end; w = addDays(w, 7)) {
+    cal += `<div class="cm">${w.getMonth() !== lastMonth ? ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][w.getMonth()] : ""}</div>`;
+    lastMonth = w.getMonth();
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(w, i), k = iso(d), e = g.calendar[k];
+      if (d > end) { cal += `<div class="cd" style="visibility:hidden"></div>`; continue; }
+      const parts = e ? [e.gym ? `gym ${e.gym}` : null, ...e.cardio].filter(Boolean) : [];
+      const bg = e?.gym ? `background:${WGW_COLORS[e.gym]}` : "";
+      const dot = e?.cardio.length ? `<i class="${e.gym ? "" : "solo"}" style="background:${WGW_COLORS[e.cardio[0]]}"></i>` : "";
+      cal += `<div class="cd" style="${bg}" title="${k}${parts.length ? ": " + esc(parts.join(", ")) : ""}">${dot}</div>`;
+    }
+  }
+  const weeks = g.weekly.slice(-12), types = ["gym", "run", "swim", "bike", "hike", "other"];
+  const max = Math.max(60, ...weeks.map((w) => types.reduce((a, t) => a + (w[t] || 0), 0)));
+  const bars = weeks.map((w) => {
+    const tot = types.reduce((a, t) => a + (w[t] || 0), 0);
+    const segs = types.filter((t) => w[t]).map((t) =>
+      `<span style="height:${(w[t] / max) * 100}%;background:${t === "gym" ? WGW_COLORS.pull : WGW_COLORS[t]}" title="${t} ${w[t]} min"></span>`).join("");
+    return `<div class="wb" title="Week of ${md(fromIso(w.week))}: ${tot} min"><div class="wstack">${segs}</div><small>${md(fromIso(w.week))}</small></div>`;
+  }).join("");
+  const key = (list, dot) => list.map((t) => `<span><i class="${dot ? "dot" : ""}" style="background:${WGW_COLORS[t]}"></i>${t}</span>`).join("");
+  const cardio = ["run", "swim", "bike", "hike"].concat(splits ? [] : ["other"]);
+  return `<div class="section">Training calendar</div>
+    <div class="wcard"><div class="calscroll" id="dashCal"><div class="wcal">${cal}</div></div>
+      <div class="wkey">${key(splits ? ["push", "pull", "legs", "reinforce"] : ["gym"], false)}${key(cardio, true)}</div></div>
+    <div class="section">Minutes per week</div>
+    <div class="wcard"><div class="wbars">${bars}</div>
+      <div class="wkey"><span><i style="background:${WGW_COLORS.pull}"></i>gym</span>${key(cardio, false)}</div>
+      ${note ? `<div class="legend">${esc(note)}</div>` : ""}</div>`;
+}
+
+// ── TJH / SJH: self-logged history, calendar + minutes, daily suggestion ─────
+const durMin = (t) => (t ? Math.round(toSec(t) / 60) : 0);
+const actLine = (a) => {
+  const x = parseExtra(a);
+  return [a.km && `${a.km} km`, a.duration, a.pace && `${a.pace}/km`, a.hr && `♥ ${a.hr}`, a.cadence && `${a.cadence} spm`,
+    x.vert_osc_cm && `↕ ${x.vert_osc_cm} cm`, x.gct_ms && `${x.gct_ms} ms`].filter(Boolean).join(" · ");
+};
+const actDate = (d) => {
+  const x = fromIso(d);
+  return `${DAYS[(x.getDay() + 6) % 7]} ${md(x)}${x.getFullYear() !== new Date().getFullYear() ? `/${String(x.getFullYear()).slice(2)}` : ""}`;
+};
+
+async function loadHist(p) {
+  const h = state.hist.get(p);
+  if (h && (h.loading || Date.now() - h.at < 5 * 60_000)) return;
+  const prev = h || { activities: [], logs: [] };
+  state.hist.set(p, { ...prev, loading: true, at: prev.at || 0 });
+  try {
+    const from = iso(addDays(mondayOf(new Date()), -7 * 25)), to = iso(new Date());
+    const d = await api(`/api/activities?person=${p}&from=${from}&to=${to}`);
+    state.hist.set(p, { activities: d.activities, logs: d.logs, at: Date.now(), ready: true });
+  } catch (e) {
+    state.hist.set(p, { ...prev, at: Date.now(), ready: true, error: e.message });
+  }
+  if ((state.tab === p || state.tab === "board") && !sheet.item && !act.open) render();
+}
+
+async function loadToday(p) {
+  const today = iso(new Date());
+  const cur = state.today.get(p) || {};
+  state.today.set(p, { ...cur, loading: true, dirty: false });
+  try {
+    const d = await api("/api/today", { method: "POST", body: JSON.stringify({ person: p, today }) });
+    state.today.set(p, { suggestion: d.suggestion, newer: d.newer, date: today, at: Date.now() });
+  } catch (e) {
+    state.today.set(p, { ...cur, loading: false, error: e.message, date: today, at: Date.now() });
+  }
+  if ((state.tab === p || state.tab === "board") && !sheet.item && !act.open) render();
+}
+
+/** New sessions: refetch history and let the server decide whether today's suggestion needs rewriting. */
+function dataChanged(p) {
+  const t = state.today.get(p); if (t) t.dirty = true;
+  const h = state.hist.get(p); if (h) h.at = 0;
+}
+
+function suggestionCard(s, color, mute) {
+  if (!s) return `<div class="sugg" style="--c:${color}"><div class="shead"><span>Today</span></div><p class="smute">${esc(mute)}</p></div>`;
+  const by = s.by === "claude" ? "by Claude · 9:00" : "";
+  return `<div class="sugg" style="--c:${CALL_COLOR[s.call] || color}">
+    <div class="shead"><span>Today${by ? `<small class="sby">${by}</small>` : ""}</span><b class="call">${esc(CALL_LABEL[s.call] || s.call)}</b></div>
+    ${s.yesterday ? `<p class="syest"><b>Yesterday</b> ${esc(s.yesterday)}</p>` : ""}
+    <div class="stitle">${esc(s.headline)}</div>
+    ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
+    ${s.why ? `<p>${esc(s.why)}</p>` : ""}
+    ${s.form ? `<p class="sform"><b>Form</b> ${esc(s.form)}</p>` : ""}
+    ${s.science ? `<p class="ssci"><b>Why it works</b> ${esc(s.science)}</p>` : ""}
+    ${s.prehab?.length ? `<details class="snum"><summary>Prehab · 2×/week, ~15 min</summary>
+      <ul>${s.prehab.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
+      <div class="smute">From recurring form issues in the logged runs. After easy runs or on rest days; stop if anything hurts.</div></details>` : ""}
+    ${s.numbers?.length ? `<details class="snum"${store.get("numOpen") === "0" ? "" : " open"}><summary>Numbers</summary>
+      <ul>${s.numbers.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
+      <div class="smute">VDOT and paces: Jack Daniels' formula. Easy ceiling ≈ 79% of max HR seen.</div></details>` : ""}
+    ${s.next ? `<p class="smute">Next: ${esc(s.next)}</p>` : ""}
+  </div>`;
+}
+
+function renderToday(p, color) {
+  const t = state.today.get(p);
+  const today = iso(new Date());
+  if (!t || (!t.loading && (t.dirty || t.date !== today || Date.now() - t.at > 30 * 60_000))) queueMicrotask(() => loadToday(p));
+  if (t?.suggestion && t.suggestion.date === today) {
+    return suggestionCard(t.suggestion, color).replace(/<\/div>\s*$/, t.newer
+      ? `<p class="smute">New sessions logged since this was written. They're in tomorrow's 9:00 suggestion.</p></div>` : "</div>");
+  }
+  const msg = !t || t.loading ? "Loading today's suggestion…"
+    : t.error ? `Couldn't load the suggestion: ${t.error}`
+    : "Claude writes this every morning at 9:00 from the sessions logged here. Nothing for today yet.";
+  return suggestionCard(null, color, msg);
+}
+
+function selfDash(p) {
+  const h = state.hist.get(p);
+  if (!h?.ready) return null;
+  const entries = h.activities.map((a) => ({ date: a.date, type: a.type, min: durMin(a.duration), km: a.type === "run" ? +a.km || 0 : 0 }));
+  const have = new Set(entries.map((e) => `${e.date}|${e.type}`));
+  for (const r of h.logs) {
+    const it = planFor(p, r.week).items?.find((i) => i.id === r.item);
+    if (!it) continue;
+    const date = iso(addDays(fromIso(r.week), it.dayIndex));
+    const type = /strength/i.test(it.kind) ? "gym" : "run";
+    if (have.has(`${date}|${type}`)) continue; // same session also added as an activity
+    const planned = +((it.meta || "").match(/(\d+)\s*min/) || [])[1] || 0;
+    entries.push({ date, type, min: r.duration ? durMin(r.duration) : planned, km: type === "run" ? +r.km || 0 : 0 });
+  }
+  const calendar = {}, weekly = new Map();
+  for (const e of entries) {
+    const c = (calendar[e.date] ||= { gym: null, cardio: [] });
+    if (e.type === "gym") c.gym = "gym"; else if (!c.cardio.includes(e.type)) c.cardio.push(e.type);
+    const wk = iso(mondayOf(fromIso(e.date)));
+    const w = weekly.get(wk) || {};
+    w[e.type] = (w[e.type] || 0) + e.min;
+    w.km = (w.km || 0) + e.km;
+    w.n = (w.n || 0) + 1;
+    weekly.set(wk, w);
+  }
+  const weeks = [];
+  for (let i = 11; i >= 0; i--) { const wk = iso(addDays(mondayOf(new Date()), -7 * i)); weeks.push({ week: wk, ...(weekly.get(wk) || {}) }); }
+  return { dataThrough: iso(new Date()), calendar, weekly: weeks };
+}
+
+let showAllActs = null;
+function renderSelfLog(p) {
+  queueMicrotask(() => loadHist(p)); // no-op while fresh
+  const h = state.hist.get(p);
+  const acts = h?.activities || [];
+  const shown = showAllActs === p ? acts : acts.slice(0, 5);
+  const list = shown.map((a) => `<button class="act" data-act="${a.id}">
+      <span class="adot" style="background:${WGW_COLORS[a.type] || WGW_COLORS.other}"></span>
+      <span class="abody"><b>${esc(a.title || a.type)}</b><small>${esc(actDate(a.date))}${actLine(a) ? " · " + esc(actLine(a)) : ""}</small></span>
+    </button>`).join("");
+  let html = `<div class="section secrow"><span>My log</span><button class="addact" data-addact>+ Add activity</button></div>
+    <div class="acts">${list || `<div class="cmute">${h?.ready ? "Nothing added yet. Add runs, gym or swims here — on or off the plan, past sessions too." : "Loading…"}</div>`}
+    ${acts.length > 5 ? `<button class="more" data-moreacts>${showAllActs === p ? "Show fewer" : `Show all ${acts.length}`}</button>` : ""}</div>`;
+  const g = selfDash(p);
+  if (g) html += renderDash(g, { note: "From what's logged here: ticked plan sessions plus added activities." });
+  return html;
+}
+
+// Additional fields (stored in activities.extra; the server validates the same keys).
+const EXTRA_FIELDS = [
+  ["max_hr", "Max HR", "bpm", "176", "numeric"],
+  ["vert_osc_cm", "Vertical oscillation", "cm", "8.2", "decimal"],
+  ["stride_m", "Avg stride", "m", "1.01", "decimal"],
+  ["gct_ms", "Ground contact", "ms", "245", "numeric"],
+  ["lr_balance", "L/R balance", "left %", "49.8", "decimal"],
+  ["power_w", "Avg power", "W", "180", "numeric"],
+  ["elev_m", "Elevation gain", "m", "12", "numeric"],
+  ["training_load", "Training load", "", "120", "numeric"],
+  ["start", "Start time", "hh:mm", "06:30", "numeric"],
+  ["weather", "Weather", "", "28°C, humid", "text"],
+  ["splits", "Km splits", "", "5:45 5:40 5:38 …", "text", true],
+  ["split_hr", "Split HR", "", "150 156 160 …", "text", true],
+];
+$("#aExtra").innerHTML = EXTRA_FIELDS.map(([k, label, unit, ph, mode, full]) =>
+  `<label${full ? ' class="span2"' : ""}>${label}${unit ? ` <span>${unit}</span>` : ""}<input id="ax_${k}" inputmode="${mode}" placeholder="${ph}"></label>`).join("");
+const parseExtra = (a) => { try { return a?.extra ? JSON.parse(a.extra) : {}; } catch { return {}; } };
+function extraCount() { return EXTRA_FIELDS.filter(([k]) => $(`#ax_${k}`).value.trim()).length; }
+function updateExtraSummary() { const n = extraCount(); $("#aExtraN").textContent = n ? `${n} filled` : "optional"; }
+
+// Add / edit activity sheet
+const act = { open: false, p: null, id: null, busy: false, paceTouched: false };
+function openAct(p, a = null) {
+  Object.assign(act, { open: true, p, id: a?.id || null, paceTouched: !!a?.pace });
+  $("#actKind").textContent = `${p} · ${a ? "Edit activity" : "New activity"}`;
+  $("#aDate").value = a?.date || iso(new Date());
+  $("#aDate").max = iso(new Date());
+  $("#aType").value = a?.type || "run";
+  $("#aTitle").value = a?.title || "";
+  $("#aKm").value = a?.km ?? "";
+  $("#aTime").value = a?.duration || "";
+  $("#aPace").value = a?.pace || "";
+  $("#aHr").value = a?.hr ?? "";
+  $("#aCad").value = a?.cadence ?? "";
+  $("#aNote").value = a?.note || "";
+  const x = parseExtra(a);
+  for (const [k] of EXTRA_FIELDS) $(`#ax_${k}`).value = x[k] ?? "";
+  $("#aMore").open = extraCount() > 0;
+  updateExtraSummary();
+  $("#aDelete").hidden = !a;
+  $("#aShotLabel").textContent = "📷 Fill from a watch screenshot";
+  $("#actSheet").classList.add("show");
+  document.body.classList.add("noscroll");
+}
+function closeAct() {
+  act.open = false;
+  $("#actSheet").classList.remove("show");
+  document.body.classList.remove("noscroll");
+}
+function actAutoPace() {
+  if (act.paceTouched) return;
+  const km = parseFloat($("#aKm").value.replace(",", "."));
+  const t = normTime($("#aTime").value);
+  $("#aPace").value = km > 0 && t ? fmtPace(toSec(t) / km) : "";
+}
+async function saveAct(e) {
+  e.preventDefault();
+  if (act.busy) return;
+  const duration = normTime($("#aTime").value);
+  const pace = normTime($("#aPace").value, { pace: true });
+  const km = $("#aKm").value.trim().replace(",", ".");
+  if (km && !(parseFloat(km) > 0)) return toast("Distance should be a number of km");
+  if (duration === null) return toast("Time should look like 32:10 or 1:02:30");
+  if (pace === null) return toast("Pace should look like 5:40");
+  act.busy = true;
+  try {
+    const { activity } = await api("/api/activities", { method: "POST", body: JSON.stringify({
+      person: act.p, id: act.id, date: $("#aDate").value, type: $("#aType").value, title: $("#aTitle").value.trim(),
+      km, duration, pace, hr: $("#aHr").value.trim(), cadence: $("#aCad").value.trim(), note: $("#aNote").value.trim(),
+      extra: Object.fromEntries(EXTRA_FIELDS.map(([k]) => [k, $(`#ax_${k}`).value.trim()]).filter(([, v]) => v)),
+    }) });
+    const h = state.hist.get(act.p) || { activities: [], logs: [], ready: true };
+    h.activities = [activity, ...h.activities.filter((a) => a.id !== activity.id)]
+      .sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.id - a.id));
+    state.hist.set(act.p, h);
+    dataChanged(act.p);
+    closeAct();
+    render();
+    toast("Saved ✓");
+  } catch (err) {
+    toast(`Couldn't save: ${err.message}`);
+  } finally { act.busy = false; }
+}
+async function deleteAct() {
+  if (!act.id || !confirm("Delete this activity?")) return;
+  try {
+    await api(`/api/activities?person=${act.p}&id=${act.id}`, { method: "DELETE" });
+    const h = state.hist.get(act.p);
+    if (h) h.activities = h.activities.filter((a) => a.id !== act.id);
+    dataChanged(act.p);
+    closeAct();
+    render();
+  } catch (err) { toast(`Couldn't delete: ${err.message}`); }
+}
+async function actFromShot(file) {
+  const label = $("#aShotLabel");
+  label.textContent = "Reading screenshot…";
+  try {
+    const blob = await compress(file);
+    const r = await api(`/api/extract?person=${act.p}`, { method: "POST", body: blob, headers: { "content-type": "image/jpeg" } });
+    const set = (id, v) => { if (v != null && v !== "") $(id).value = v; };
+    set("#aDate", r.date && r.date <= iso(new Date()) ? r.date : null);
+    set("#aType", r.type); set("#aTitle", r.title); set("#aKm", r.km); set("#aTime", r.duration);
+    set("#aHr", r.hr); set("#aCad", r.cadence);
+    let nx = 0;
+    for (const [k] of EXTRA_FIELDS) if (r.extra?.[k] != null && r.extra[k] !== "") { $(`#ax_${k}`).value = r.extra[k]; nx++; }
+    if (nx) $("#aMore").open = true;
+    updateExtraSummary();
+    if (r.pace) { $("#aPace").value = r.pace; act.paceTouched = true; } else actAutoPace();
+    const n = ["date", "km", "duration", "hr", "cadence"].filter((k) => r[k] != null).length;
+    toast(n ? "Filled from screenshot — check & Save" : "Couldn't find stats in that image");
+  } catch (err) { toast(err.message); }
+  label.textContent = "📷 Fill from a watch screenshot";
+}
+
+// Weekly totals per runner: WGW from Garmin (wgw.json, minutes only), others from what they log here.
+const MIN_TYPES = ["gym", "run", "swim", "bike", "hike", "other"];
+function weekTotals(pid, wk) {
+  if (pid === "WGW") {
+    const w = state.wgw?.weekly.find((x) => x.week === wk);
+    return w ? { min: MIN_TYPES.reduce((a, t) => a + (w[t] || 0), 0), w } : state.wgw ? { min: 0, w: {} } : null;
+  }
+  const g = selfDash(pid);
+  if (!g) return null;
+  const w = g.weekly.find((x) => x.week === wk) || {};
+  return { min: MIN_TYPES.reduce((a, t) => a + (w[t] || 0), 0), km: w.km || 0, n: w.n || 0, w };
+}
+function todayOf(pid) {
+  if (pid === "WGW") { const s = state.wgw?.suggestion; return s?.date === iso(new Date()) ? s : null; }
+  const t = state.today.get(pid);
+  if (!t || (!t.loading && t.date !== iso(new Date()))) queueMicrotask(() => loadToday(pid));
+  return t?.suggestion?.date === iso(new Date()) ? t.suggestion : null;
+}
+
+function renderBoard() {
+  const w = state.week, isCur = w === thisWeek();
+  for (const p of PEOPLE) if (p.id !== "WGW") queueMicrotask(() => loadHist(p.id));
+  let html = `<div class="section">${isCur ? "This week" : "Week of " + md(fromIso(w))}</div>`;
+
+  for (const p of PEOPLE) {
+    const s = summary(p.id, w);
+    const tot = weekTotals(p.id, w);
+    const sug = isCur ? todayOf(p.id) : null;
+    html += `<button class="pcard" data-goto="${p.id}" style="--c:${p.color}">
+      <div class="top"><span class="name"><i style="background:${p.color}"></i>${p.id}</span>
+        <span class="cnt">${s ? `${s.done}<small>/${s.total}</small>` : "—"}</span></div>
+      <div class="blurb">${esc(s ? s.plan.title : p.blurb)}</div>`;
+    if (s) {
+      const set = doneSet(p.id, w);
+      html += `<div class="progress"><div class="track"><div class="fill" style="width:${s.pct * 100}%;background:${s.pct === 1 ? "var(--ok)" : p.color}"></div></div></div>
+        <div class="pips">${s.items.map((it) => {
+          const st = itemStatus(w, it, set.has(it.id));
+          return `<span class="pip ${st}" title="${esc(it.title)}">${it.day}</span>`;
+        }).join("")}</div>`;
+    } else {
+      html += `<div class="blurb" style="margin-top:6px">${esc(planFor(p.id, w).empty)}</div>`;
+    }
+    if (tot && tot.min) {
+      const parts = MIN_TYPES.filter((t) => tot.w[t]).map((t) =>
+        `<span><i style="background:${t === "gym" ? WGW_COLORS.pull : WGW_COLORS[t]}"></i>${t} ${tot.w[t]}′</span>`).join("");
+      html += `<div class="bweek"><b>${tot.min}′</b>${tot.km ? ` · ${Math.round(tot.km * 10) / 10} km run` : ""}${parts}</div>`;
+    }
+    if (sug) {
+      html += `<div class="btoday" style="--k:${CALL_COLOR[sug.call] || p.color}"><b>${esc(CALL_LABEL[sug.call] || sug.call)}</b>${esc(sug.headline)}</div>`;
+    }
+    html += `</button>`;
+  }
+
+  const weeks = [];
+  for (let i = HISTORY_WEEKS - 1; i >= 0; i--) weeks.push(iso(addDays(fromIso(w), -7 * i)));
+  html += `<div class="section">Last ${HISTORY_WEEKS} weeks</div>
+    <table class="hist"><tr><th></th>${weeks.map((wk) => `<th>${md(fromIso(wk))}</th>`).join("")}</tr>`;
+  for (const p of PEOPLE) {
+    html += `<tr><td>${p.id}</td>`;
+    for (const wk of weeks) {
+      const s = summary(p.id, wk);
+      const tot = weekTotals(p.id, wk);
+      const mins = tot && tot.min ? `<small>${tot.min}′</small>` : "";
+      if (!s || !state.loaded.has(wk)) {
+        html += `<td><div class="cell" style="color:var(--mute)">${mins ? `<span>—</span>${mins}` : "—"}</div></td>`;
+        continue;
+      }
+      const pct = Math.round(s.pct * 100);
+      const alpha = Math.round((0.15 + 0.85 * s.pct) * 255).toString(16).padStart(2, "0");
+      const bg = s.pct === 0 ? "var(--card)" : p.color + alpha;
+      const fg = s.pct >= 0.6 ? "#0f1115" : "var(--text)";
+      html += `<td><div class="cell" style="background:${bg};color:${fg}"><span>${pct}%</span>${mins}</div></td>`;
+    }
+    html += `</tr>`;
+  }
+  html += `</table><div class="legend">Top: share of planned sessions ticked off. Below: training minutes that week
+    (WGW from Garmin; TJH and SJH from what they log). Tap a runner to open their week.</div>`;
+  return html;
+}
+
+function render() {
+  renderHeader();
+  $("#main").innerHTML = state.tab === "board" ? renderBoard() : renderPerson(state.tab);
+  const cs = $("#dashCal"); if (cs) cs.scrollLeft = cs.scrollWidth;
+  $("#status").textContent = !state.online
+    ? "Offline — changes may not be saved"
+    : state.lastSync ? `Synced ${state.lastSync.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Loading…";
+}
+
+// ── log sheet ────────────────────────────────────────────────────────────────
+const sheet = { p: null, w: null, item: null, paceTouched: false, busy: false };
+const photoUrls = new Map(); // "p|w|item|updated_at" -> objectURL
+
+function openSheet(p, w, it) {
+  Object.assign(sheet, { p, w, item: it.id, paceTouched: false });
+  const l = logOf(p, w, it.id) || {};
+  $("#logKind").textContent = `${p} · ${DAYS[it.dayIndex]} · ${it.kind}`;
+  $("#logKind").style.color = it.color || "var(--mute)";
+  $("#logTitle").textContent = it.title;
+  $("#fKm").value = l.km ?? "";
+  $("#fTime").value = l.duration ?? "";
+  $("#fPace").value = l.pace ?? "";
+  $("#fHr").value = l.hr ?? "";
+  $("#fNote").value = l.note ?? "";
+  sheet.paceTouched = !!l.pace;
+  renderPhoto();
+  $("#logSheet").classList.add("show");
+  document.body.classList.add("noscroll");
+}
+function closeSheet() {
+  $("#logSheet").classList.remove("show");
+  document.body.classList.remove("noscroll");
+  sheet.item = null;
+}
+
+async function renderPhoto() {
+  const { p, w, item } = sheet;
+  const l = logOf(p, w, item) || {};
+  const box = $("#photoBox");
+  if (!l.has_photo) {
+    box.innerHTML = `<label class="addphoto"><input type="file" accept="image/*" id="fPhoto" hidden>
+      📷 Add photo or watch screenshot</label>`;
+    return;
+  }
+  box.innerHTML = `<div class="thumb"><div class="ph">Loading photo…</div></div>
+    <div class="photobtns"><button type="button" id="fExtract">✨ Fill from screenshot</button><button type="button" id="fRemove" class="ghost">Remove</button></div>`;
+  const k = `${p}|${w}|${item}|${l.updated_at}`;
+  if (!photoUrls.has(k)) {
+    const res = await request(`/api/photo?${qsKey(p, w, item)}`);
+    if (!res.ok) { box.querySelector(".thumb").innerHTML = `<div class="ph">Photo unavailable</div>`; return; }
+    photoUrls.set(k, URL.createObjectURL(await res.blob()));
+  }
+  if (sheet.item !== item) return;
+  box.querySelector(".thumb").innerHTML = `<img src="${photoUrls.get(k)}" alt="Session photo">`;
+}
+
+async function compress(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * scale);
+    c.height = Math.round(img.naturalHeight * scale);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    let q = 0.82, blob;
+    do { blob = await new Promise((r) => c.toBlob(r, "image/jpeg", q)); q -= 0.12; } while (blob.size > 1_200_000 && q > 0.3);
+    return blob;
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function uploadPhoto(file) {
+  const { p, w, item } = sheet;
+  $("#photoBox").innerHTML = `<div class="thumb"><div class="ph">Uploading…</div></div>`;
+  try {
+    const blob = await compress(file);
+    const r = await api(`/api/photo?${qsKey(p, w, item)}`, { method: "PUT", body: blob, headers: { "content-type": "image/jpeg" } });
+    const l = logOf(p, w, item) || { person: p, week: w, item };
+    state.logs.set(`${p}|${w}|${item}`, { ...l, has_photo: 1, updated_at: r.updated_at });
+    render();
+    await renderPhoto();
+    toast("Photo saved — tap ✨ to read stats from it");
+  } catch (e) {
+    toast(`Upload failed: ${e.message}`);
+    renderPhoto();
+  }
+}
+
+function autoPace() {
+  if (sheet.paceTouched) return;
+  const km = parseFloat($("#fKm").value.replace(",", "."));
+  const t = normTime($("#fTime").value);
+  $("#fPace").value = km > 0 && t ? fmtPace(toSec(t) / km) : "";
+}
+
+async function saveSheet(e) {
+  e.preventDefault();
+  if (sheet.busy) return;
+  const { p, w, item } = sheet;
+  const km = $("#fKm").value.trim().replace(",", ".");
+  const duration = normTime($("#fTime").value);
+  const pace = normTime($("#fPace").value, { pace: true });
+  const hr = $("#fHr").value.trim();
+  if (km && !(parseFloat(km) > 0)) return toast("Distance should be a number of km");
+  if (duration === null) return toast("Time should look like 32:10 or 1:02:30");
+  if (pace === null) return toast("Pace should look like 5:40");
+  if (hr && !(+hr >= 40 && +hr <= 230)) return toast("Heart rate should be 40–230");
+  sheet.busy = true;
+  try {
+    const r = await api("/api/progress", {
+      method: "POST",
+      body: JSON.stringify({ person: p, week: w, item, done: true, log: { km, duration, pace, hr, note: $("#fNote").value.trim() } }),
+    });
+    doneSet(p, w).add(item);
+    state.logs.set(`${p}|${w}|${item}`, r.row);
+    dataChanged(p);
+    closeSheet();
+    render();
+    toast("Saved ✓");
+  } catch (err) {
+    toast(`Couldn't save: ${err.message}`);
+  } finally { sheet.busy = false; }
+}
+
+// ── UI wiring ────────────────────────────────────────────────────────────────
+let toastTimer;
+function toast(msg) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+}
+function showLock() {
+  $("#lock").classList.add("show");
+  setTimeout(() => $("#lockInput").focus(), 50);
+}
+$("#lockForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  state.passcode = $("#lockInput").value.trim();
+  store.set("passcode", state.passcode);
+  $("#lock").classList.remove("show");
+  const w = unlockWaiters; unlockWaiters = [];
+  w.forEach((r) => r());
+});
+
+const goTab = (t) => { state.tab = t; store.set("tab", t); render(); window.scrollTo({ top: 0 }); };
+$("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) goTab(b.dataset.tab); });
+
+$("#main").addEventListener("click", async (e) => {
+  const run = e.target.closest("[data-item]");
+  if (run) {
+    const p = state.tab, w = state.week;
+    const it = planFor(p, w).items.find((i) => i.id === run.dataset.item);
+    if (!doneSet(p, w).has(it.id)) { if (!(await setDone(p, w, it.id, true))) return; }
+    return openSheet(p, w, it);
+  }
+  const go = e.target.closest("[data-goto]");
+  if (go) return goTab(go.dataset.goto);
+  if (e.target.closest("[data-addact]")) return openAct(state.tab);
+  const ab = e.target.closest("[data-act]");
+  if (ab) return openAct(state.tab, state.hist.get(state.tab)?.activities.find((a) => String(a.id) === ab.dataset.act));
+  if (e.target.closest("[data-moreacts]")) { showAllActs = showAllActs === state.tab ? null : state.tab; return render(); }
+});
+$("#main").addEventListener("toggle", (e) => {
+  if (e.target.matches("details.notes")) store.set("notesOpen", e.target.open ? "1" : "0");
+  if (e.target.matches("details.snum")) store.set("numOpen", e.target.open ? "1" : "0");
+}, true);
+
+$("#logForm").addEventListener("submit", saveSheet);
+$("#logClose").addEventListener("click", closeSheet);
+$("#logSheet").addEventListener("click", (e) => { if (e.target.id === "logSheet") closeSheet(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sheet.item) closeSheet(); });
+$("#fKm").addEventListener("input", autoPace);
+$("#fTime").addEventListener("input", autoPace);
+$("#fTime").addEventListener("blur", () => { const t = normTime($("#fTime").value); if (t) $("#fTime").value = t; autoPace(); });
+$("#fPace").addEventListener("input", () => { sheet.paceTouched = !!$("#fPace").value; });
+$("#fPace").addEventListener("blur", () => { const t = normTime($("#fPace").value, { pace: true }); if (t) $("#fPace").value = t; });
+$("#logUndo").addEventListener("click", async () => {
+  const { p, w, item } = sheet;
+  const l = logOf(p, w, item);
+  if ((l?.km || l?.duration || l?.hr || l?.note || l?.has_photo) && !confirm("Un-tick this session? Its logged details and photo will be removed.")) return;
+  closeSheet();
+  setDone(p, w, item, false);
+});
+$("#actForm").addEventListener("submit", saveAct);
+$("#actClose").addEventListener("click", closeAct);
+$("#aDelete").addEventListener("click", deleteAct);
+$("#actSheet").addEventListener("click", (e) => { if (e.target.id === "actSheet") closeAct(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && act.open) closeAct(); });
+$("#aKm").addEventListener("input", actAutoPace);
+$("#aExtra").addEventListener("input", updateExtraSummary);
+$("#aTime").addEventListener("input", actAutoPace);
+$("#aTime").addEventListener("blur", () => { const t = normTime($("#aTime").value); if (t) $("#aTime").value = t; actAutoPace(); });
+$("#aPace").addEventListener("input", () => { act.paceTouched = !!$("#aPace").value; });
+$("#aShot").addEventListener("change", (e) => { if (e.target.files[0]) actFromShot(e.target.files[0]); e.target.value = ""; });
+$("#photoBox").addEventListener("change", (e) => { if (e.target.id === "fPhoto" && e.target.files[0]) uploadPhoto(e.target.files[0]); });
+$("#photoBox").addEventListener("click", async (e) => {
+  const { p, w, item } = sheet;
+  if (e.target.id === "fRemove") {
+    try {
+      const r = await api(`/api/photo?${qsKey(p, w, item)}`, { method: "DELETE" });
+      state.logs.set(`${p}|${w}|${item}`, { ...logOf(p, w, item), has_photo: 0, updated_at: r.updated_at });
+      render(); renderPhoto();
+    } catch (err) { toast(`Couldn't remove: ${err.message}`); }
+  }
+  if (e.target.id === "fExtract") {
+    const b = e.target;
+    b.disabled = true; b.textContent = "Reading…";
+    try {
+      const r = await api("/api/extract", { method: "POST", body: JSON.stringify({ person: p, week: w, item }) });
+      const got = [];
+      if (r.km != null) { $("#fKm").value = r.km; got.push("distance"); }
+      if (r.duration) { $("#fTime").value = r.duration; got.push("time"); }
+      if (r.hr != null) { $("#fHr").value = r.hr; got.push("HR"); }
+      if (r.pace) { $("#fPace").value = r.pace; sheet.paceTouched = true; got.push("pace"); } else autoPace();
+      toast(got.length ? `Filled ${got.join(", ")} — check & Save` : "Couldn't find stats in that image");
+    } catch (err) { toast(err.message); }
+    b.disabled = false; b.textContent = "✨ Fill from screenshot";
+  }
+});
+
+const shiftWeek = (n) => { state.week = iso(addDays(fromIso(state.week), 7 * n)); render(); refresh(); };
+$("#prev").addEventListener("click", () => shiftWeek(-1));
+$("#next").addEventListener("click", () => shiftWeek(1));
+$("#weekLabel").addEventListener("click", () => { state.week = thisWeek(); render(); refresh(); });
+
+// Stay fresh: re-sync on return to foreground, roll to the new week on Monday, poll while visible.
+let lastSeenWeek = thisWeek();
+function onWake() {
+  if (document.visibilityState !== "visible" || sheet.item || act.open) return;
+  const cur = thisWeek();
+  if (cur !== lastSeenWeek) { if (state.week === lastSeenWeek) state.week = cur; lastSeenWeek = cur; }
+  refresh();
+  loadWgw();
+}
+document.addEventListener("visibilitychange", onWake);
+setInterval(() => document.visibilityState === "visible" && onWake(), POLL_MS);
+
+// Deep links: ?tab=TJH|WGW|SJH|board  &week=YYYY-MM-DD
+const qs = new URLSearchParams(location.search);
+if (qs.get("tab") && (qs.get("tab") === "board" || person(qs.get("tab")))) state.tab = qs.get("tab");
+if (/^\d{4}-\d{2}-\d{2}$/.test(qs.get("week") || "")) state.week = iso(mondayOf(fromIso(qs.get("week"))));
+
+render();
+refresh();
+loadWgw();

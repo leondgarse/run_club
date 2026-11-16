@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Training Plan · Week 3</title>
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--line:#262a33;--text:#e8eaee;--mute:#9aa1ad;
+    --e:#3fb97a;--m:#e8c23a;--t:#e8a23a;--l:#e5704d;--s:#4aa3df}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC",sans-serif}
+  .wrap{max-width:400px;margin:0 auto;padding:18px 14px 28px}
+  h1{font-size:22px;margin:0 0 2px;letter-spacing:-.2px}
+  .sub{color:var(--mute);font-size:12.5px;margin-bottom:14px}
+  .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 8px;text-align:center}
+  .stat b{display:block;font-size:17px}
+  .stat span{color:var(--mute);font-size:11px}
+  .row{display:flex;gap:10px;margin-bottom:8px}
+  .date{flex:0 0 34px;text-align:center;padding-top:10px}
+  .date b{display:block;font-size:16px}
+  .date span{color:var(--mute);font-size:11px}
+  .stack{flex:1;display:flex;flex-direction:column;gap:6px}
+  .run{display:flex;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:10px 12px;cursor:pointer;user-select:none;transition:opacity .15s}
+  .bar{flex:0 0 4px;border-radius:3px}
+  .E .bar{background:var(--e)} .M .bar{background:var(--m)} .T .bar{background:var(--t)}
+  .L .bar{background:var(--l)} .S .bar{background:var(--s)}
+  .body{flex:1}
+  .title{font-size:14.5px;font-weight:700}
+  .title small{display:block;color:var(--mute);font-weight:400;font-size:11.5px}
+  .kind{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;font-weight:700;margin-bottom:2px}
+  .E .kind{color:var(--e)} .M .kind{color:var(--m)} .T .kind{color:var(--t)}
+  .L .kind{color:var(--l)} .S .kind{color:var(--s)}
+  .meta{color:var(--mute);font-size:12px;margin-top:3px;font-variant-numeric:tabular-nums}
+  .box{flex:0 0 22px;height:22px;border:2px solid #4a505c;border-radius:6px;align-self:center;
+    display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:#111}
+  .run.done{opacity:.55}
+  .run.done .box{background:var(--e);border-color:var(--e)}
+  .run.done .box::after{content:"✓"}
+  .rest{color:var(--mute);font-size:13px;padding:10px 12px;border:1px dashed var(--line);border-radius:12px}
+  .foot{color:var(--mute);font-size:11.5px;text-align:center;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Week 3 · Training Plan</h1>
+  <div class="sub">11/16 – 11/22 · tap a session to tick it off</div>
+
+  <div class="stats">
+    <div class="stat"><b>39.5 km</b><span>running</span></div>
+    <div class="stat"><b>6</b><span>training days</span></div>
+    <div class="stat"><b>7</b><span>sessions</span></div>
+  </div>
+
+  <div class="row">
+    <div class="date"><b>16</b><span>Mon</span></div>
+    <div class="stack"><div class="rest">Rest</div></div>
+  </div>
+
+  <div class="row">
+    <div class="date"><b>17</b><span>Tue</span></div>
+    <div class="stack">
+      <div class="run E" onclick="this.classList.toggle('done')"><div class="bar"></div>
+        <div class="body"><div class="kind">Easy · L2</div><div class="title">5.5 km easy run</div>
+          <div class="meta">36 min · 296 kcal</div></div><div class="box"></div></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="date"><b>18</b><span>Wed</span></div>
+    <div class="stack">
+      <div class="run M" onclick="this.classList.toggle('done')"><div class="bar"></div>
+        <div class="body"><div class="kind">Easy · L3</div><div class="title">8 km easy run</div>
+          <div class="meta">52 min · 430 kcal</div></div><div class="box"></div></div>
+      <div class="run S" onclick="this.classList.toggle('done')"><div class="bar"></div>
+        <div class="body"><div class="kind">Strength · L1</div><div class="title">Lower-body strength 2<small>跑者下肢力量训练2级</small></div>
+          <div class="meta">14 min · 41 kcal</div></div><div class="box"></div></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="date"><b>19</b><span>Thu</span></div>
+    <div class="stack">
+      <div class="run T" onclick="this.classList.toggle('done')"><div class="bar"></div>
+        <div class="body"><div class="kind">Tempo · L2</div><div class="title">5.5 km progressive tempo</div>
+          <div class="meta">33 min · 296 kcal</div></div><div class="box"></div></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="date"><b>20</b><span>Fri</span></div>
+    <div class="stack">
+      <div class="run S" onclick="this.classList.toggle('done')"><div class="bar"></div>
+        <div class="body"><div class="kind">Strength · L1</div><div class="title">Core strength 2<small>跑者核心力量训练2级</small></div>
+          <div class="meta">17 min · 65 kcal</div></div><div class="box"></div></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="date"><b>21</b><span>Sat</span></div>
+    <div class="stack">
+      <div class="run L" onclick="this.classList.toggle('done')"><div class="bar"></div>
+        <div class="body"><div class="kind">Long · L4</div><div class="title">15 km steady long run</div>
+          <div class="meta">97 min · 807 kcal</div></div><div class="box"></div></div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="date"><b>22</b><span>Sun</span></div>
+    <div class="stack">
+      <div class="run E" onclick="this.classList.toggle('done')"><div class="bar"></div>
+        <div class="body"><div class="kind">Easy · L2</div><div class="title">5.5 km easy run</div>
+          <div class="meta">36 min · 296 kcal</div></div><div class="box"></div></div>
+    </div>
+  </div>
+
+  <div class="foot">Week total 39.5 km running · 4 h 45 min incl. strength</div>
+</div>
+</body>
+</html>

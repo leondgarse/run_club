@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+.dev.vars
+.DS_Store
+.claude/settings.local.json
+# Personal data: runners' history loaded from chat, and WGW's generated Garmin summary (deployed, not versioned).
+seed/
+public/wgw.json
