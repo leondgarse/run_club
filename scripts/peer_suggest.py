@@ -1,11 +1,13 @@
 """Write today's suggestion for TJH and SJH with Claude and store it in the Run Club D1 database.
 
     python3 scripts/peer_suggest.py OUT.sql        # called by scripts/daily.sh, which then runs the SQL with wrangler
+    python3 scripts/peer_suggest.py OUT.sql TJH    # on-demand refresh (scripts/refresh.sh): also marks the request done
 
 For each runner: GET /api/today?person=X (the site builds the prompt from their plan and logged sessions),
 run `claude -p` on it with no tools from an empty directory (so no CLAUDE.md, and so nothing about WGW, is
-loaded), validate the JSON, add a Chinese copy (`zh`, a second Claude call), and append an upsert into `suggestions` with by:"claude". Later the same day the
-site only rewrites it (with Mistral) if new sessions are logged.
+loaded), validate the JSON, add a Chinese copy (`zh`, a second Claude call), and append an upsert into `suggestions` with by:"claude".
+In refresh mode (runners given), each runner's pending row in `refreshes` is marked done, or failed with its count
+given back, so the site stops waiting either way.
 Set RUNCLUB_PASSCODE if the site has a PASSCODE.
 """
 
@@ -47,6 +49,8 @@ ZH_KEYS = ["headline", "session", "why", "next", "yesterday", "science", "form",
 def translate(s):
     """Chinese copy of the card's text fields ({} if Claude's reply is unusable)."""
     src = {k: s[k] for k in ZH_KEYS if s.get(k)}
+    if s.get("plan_change"):
+        src["plan_why"] = s["plan_change"]["why"]
     try:
         zh = ask_claude(TRANSLATE + json.dumps(src, ensure_ascii=False, indent=1))
     except Exception as e:
@@ -98,14 +102,55 @@ LEAK = re.compile(
     re.I)
 
 
+def strings(v):
+    """Every string inside v (nested dicts/lists too, e.g. plan_change sessions)."""
+    if isinstance(v, str):
+        yield v
+    elif isinstance(v, dict):
+        for x in v.values():
+            yield from strings(x)
+    elif isinstance(v, list):
+        for x in v:
+            yield from strings(x)
+
+
 def leaks(s):
     """Field names in the card whose text looks like system/personal information (empty list = fine)."""
-    bad = []
-    for k, v in s.items():
-        vals = v if isinstance(v, list) else v.values() if isinstance(v, dict) else [v]
-        if any(isinstance(x, str) and LEAK.search(x) for x in vals):
-            bad.append(k)
-    return bad
+    return [k for k, v in s.items() if any(LEAK.search(x) for x in strings(v))]
+
+
+# Mirrors public/plans.js cleanChange (the site checks it again when the runner taps Accept).
+DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+KINDS = {"Easy", "Long", "Long · Easy", "Tempo", "Threshold", "Interval", "Repetition", "Goal pace", "Test", "Race",
+         "Strength", "Cross", "Rest"}
+PLAN_TEXT = re.compile(r"^[A-Za-z0-9 .,:;'’()+\-–—/&!?@×·%~≤≥=]*$")
+
+
+def plan_change(c, today):
+    """Claude's optional proposal → {week, from, sessions, why} for this/next week, or None if absent or malformed."""
+    if not isinstance(c, dict) or c.get("week") not in ("this", "next") or not isinstance(c.get("sessions"), list):
+        return None
+    d = dt.date.fromisoformat(today)
+    monday = d - dt.timedelta(days=d.weekday())
+    start = d.weekday() if c["week"] == "this" else 0
+    week = (monday if c["week"] == "this" else monday + dt.timedelta(days=7)).isoformat()
+    out = []
+    for x in c["sessions"][:10]:
+        if not isinstance(x, dict):
+            return None
+        day, kind = str(x.get("day", ""))[:3], x.get("kind")
+        title = " ".join(str(x.get("title") or ("Rest" if kind == "Rest" else "")).split())
+        meta = " ".join(str(x.get("meta") or "").split())
+        if (day not in DAYS or DAYS.index(day) < start or kind not in KINDS or not title or len(title) > 50
+                or len(meta) > 40 or not PLAN_TEXT.match(title) or not PLAN_TEXT.match(meta)):
+            print(f"    plan_change dropped: bad session {x!r}"[:200], file=sys.stderr)
+            return None
+        out.append({"day": day, "kind": kind, "title": title, "meta": meta})
+    why = " ".join(str(c.get("why") or "").split())
+    if not why or len(why) > 200 or not PLAN_TEXT.match(why):
+        print("    plan_change dropped: bad reason", file=sys.stderr)
+        return None
+    return {"week": week, "from": start, "sessions": sorted(out, key=lambda x: DAYS.index(x["day"])), "why": why}
 
 
 def clean(r, today):
@@ -116,6 +161,9 @@ def clean(r, today):
         v = r.get(k)
         if isinstance(v, str) and v.strip():
             out[k] = v.strip()[:n]
+    pc = plan_change(r.get("plan_change"), today)
+    if pc:
+        out["plan_change"] = pc
     return out
 
 
@@ -125,10 +173,20 @@ def q(v):
 
 def main():
     out_path = sys.argv[1]
+    refresh = [p for p in sys.argv[2:] if p in PEOPLE]
     today = dt.date.today().isoformat()
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     sql = []
-    for person in PEOPLE:
+
+    def settle(person, ok):
+        if not refresh:
+            return
+        where = f"WHERE person={q(person)} AND date={q(today)} AND done_at IS NULL;"
+        sql.append(f"UPDATE refreshes SET done_at={q(now)}, failed=0 {where}" if ok else
+                   f"UPDATE refreshes SET done_at={q(now)}, failed=1, count=max(count-1, 0) {where}")
+
+    for person in refresh or PEOPLE:
+        ok = False
         try:
             ctx = fetch(person, today)
             if not ctx.get("prompt"):
@@ -142,6 +200,7 @@ def main():
             if ctx.get("prehab"):
                 s["prehab"] = ctx["prehab"]
             s["by"] = "claude"
+            s["at"] = dt.datetime.now().strftime("%H:%M")
             zh = translate(s)
             if zh:
                 s["zh"] = zh
@@ -154,9 +213,12 @@ def main():
                 "INSERT INTO suggestions (person, date, data, data_at, created_at) VALUES "
                 f"({q(person)}, {q(today)}, {q(json.dumps(s, ensure_ascii=False))}, {q(ctx.get('dataAt'))}, {q(now)}) "
                 "ON CONFLICT(person, date) DO UPDATE SET data=excluded.data, data_at=excluded.data_at, created_at=excluded.created_at;")
+            ok = True
             print(f"  {person}: {s['call']}: {s['headline']}" + (f" / {s['zh'].get('headline', '')}" if s.get("zh") else ""))
         except Exception as e:  # one runner failing shouldn't stop the other
             print(f"  {person}: FAILED: {e}", file=sys.stderr)
+        finally:  # also on the `continue`s above (nothing logged, refused)
+            settle(person, ok)
     with open(out_path, "w") as f:
         f.write("\n".join(sql) + "\n")
     return 0 if sql else 1

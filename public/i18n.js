@@ -22,12 +22,12 @@ const ZH = {
   // plan kinds
   "Easy": "轻松跑", "Long": "长距离", "Long · Easy": "长距离 · 轻松", "Tempo": "节奏跑", "Threshold": "乳酸阈",
   "Interval": "间歇跑", "Repetition": "重复跑", "Goal pace": "目标配速", "Test": "测试", "Race": "比赛",
-  "Rest": "休息", "Strength": "力量", "Missed": "未完成", "Marathon": "马拉松", "Goal 5K": "目标 5K",
+  "Rest": "休息", "Strength": "力量", "Cross": "交叉训练", "Missed": "未完成", "Marathon": "马拉松", "Goal 5K": "目标 5K",
   // plan headers
   "{n} km logged": "已记录 {n} 公里", "Paces": "配速表",
   // suggestion card
   "Rest ": "休息", "As planned": "按计划", "Quality": "强度课", "Gym": "健身房", "Cross-train": "交叉训练",
-  "by Claude · 9:00": "Claude · 9:00 撰写", "Yesterday": "昨天", "Tomorrow:": "明天：", "Next:": "接下来：",
+  "by Claude · {t}": "Claude · {t} 撰写", "Yesterday": "昨天", "Tomorrow:": "明天：", "Next:": "接下来：",
   "Form": "跑姿", "Why it works": "原理", "Numbers": "数据", "Prehab · 2×/week, ~15 min": "预防性训练 · 每周 2 次，约 15 分钟",
   "From recurring form issues in the logged runs. After easy runs or on rest days; stop if anything hurts.":
     "根据记录中反复出现的跑姿问题生成。在轻松跑后或休息日做；如有疼痛请停止。",
@@ -40,6 +40,19 @@ const ZH = {
     "Claude 每天早上 9:00 根据这里记录的训练撰写。今天还没有。",
   "New sessions logged since this was written. They're in tomorrow's 9:00 suggestion.":
     "此建议生成后又记录了新训练，会体现在明天 9:00 的建议中。",
+  "Sessions or target changed since this was written.": "此建议生成后训练记录或目标有变化。",
+  "↻ Refresh suggestion": "↻ 更新建议",
+  "Proposed plan change · {w}": "建议调整计划 · {w}", "this week": "本周", "next week": "下周",
+  "Days not listed become rest. Earlier days stay as they are.": "未列出的日子为休息；之前的日子不变。",
+  "Dismiss": "忽略", "Accept": "接受", "Plan change accepted ✓": "已接受计划调整 ✓", "Plan updated ✓": "计划已更新 ✓",
+  "Adjusted": "已调整", "Revert": "恢复原计划", "Go back to the original plan for this week?": "恢复本周的原计划吗？",
+  "+ Set a target": "+ 设定目标", "{n} days to go": "还有 {n} 天", "Today!": "就是今天！", "done": "已结束",
+  "Target": "目标", "Race date": "比赛日期", "Clear": "清除",
+  "English, up to 60 characters (中文 is made automatically)": "请用英文填写，最多 60 个字符（会自动生成中文）",
+  "Target: English letters, digits and basic punctuation, up to 60 characters": "目标：只能用英文字母、数字和基本标点，最多 60 个字符", "{n} left today": "今天还剩 {n} 次",
+  "Rewriting… usually 1–3 min.": "正在重写建议…通常需要 1–3 分钟。",
+  "All {n} refreshes for today are used.": "今天的 {n} 次更新已用完。",
+  "The last refresh didn't go through (it wasn't counted). Try again later.": "上次更新没有成功（不计次数），请稍后再试。",
   // log / dashboard
   "My log": "我的记录", "+ Add activity": "+ 添加训练", "Loading…": "加载中…",
   "Nothing added yet. Add runs, gym or swims here — on or off the plan, past sessions too.":

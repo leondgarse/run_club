@@ -1,23 +1,38 @@
 // One suggestion per runner per day, written by Claude at 09:00 from their plan + logged sessions.
 //   GET  /api/today?person=&today=   -> { prompt, dataAt, form, numbers, prehab } (null prompt = nothing logged recently)
 //        ../../daily.sh -> ../peer_suggest.py runs Claude on the prompt and stores the result in `suggestions`.
-//   POST /api/today { person, today } -> { suggestion | null, newer } (read-only; newer = sessions logged since it was written)
+//   POST /api/today { person, today } -> { suggestion | null, newer, refresh } (read-only; newer = sessions logged since it
+//        was written; refresh = { used, left, pending, failed } for the on-demand refresh, see ./refresh.js)
 // WGW doesn't use this: their suggestion comes from Garmin via ../../daily.sh (public/wgw.json).
-import { DATE, HttpError, fromQuery, handle, json, key } from "../../lib/shared.js";
-import { planFor } from "../../public/plans.js";
+import { DATE, HttpError, fromQuery, handle, json, key, refreshInfo } from "../../lib/shared.js";
+import { CHANGEABLE, CHANGE_KINDS, planFor as basePlanFor } from "../../public/plans.js";
 import { DAY, describeWeek, mmss, sec } from "../../lib/week.js";
 import { formCheck, formFlags } from "../../lib/form.js";
 import { sportsScience } from "../../lib/science.js";
 import { coachMetrics, describeMetrics } from "../../lib/metrics.js";
 import { RULES, untrusted } from "../../lib/rules.js";
+import { goalContext } from "../../lib/goal.js";
 
 const WINDOW_DAYS = 21;
+const CHANGE_KIND_LIST = CHANGE_KINDS.join(", ");
+// TJH only (SJH's plan comes from their own app): Claude may propose a changed week; the runner decides.
+const PLAN_CHANGE_RULES = `PLAN CHANGE (optional, usually null). The runner sees it as a proposal and may accept it.
+Propose one ONLY when the current week, or next week, clearly no longer fits, for example:
+- the TARGET date falls inside or before the plan's remaining weeks, or needs a taper/race week the plan lacks;
+- missed or overdone sessions mean this week's remaining sessions would stack hard days or skip the long run;
+- a pain/illness note means the rest of the week should be easy or rest.
+Not for small things: today's call already handles one day. If the week is ALREADY ADJUSTED, don't propose again
+unless something new happened. "this" lists every session from TODAY to Sunday; "next" lists the whole of next week
+(on Sat/Sun only). Days you leave out become rest. Use the plan's notation (E, T, I, R, M, G paces, "6×800 m @ I").
+Keep the plan's style and weekly volume unless the reason is to cut it.
+
+`;
 
 const shift = (d, n) => new Date(Date.parse(d + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
 const mondayOf = (d) => shift(d, -((new Date(d + "T00:00:00Z").getUTCDay() + 6) % 7));
 
 /** The plan's easy-run target (pace/HR), if it has one. */
-function easyTarget(person, week) {
+function easyTarget(person, week, planFor) {
   const it = planFor(person, week).items?.find((i) => /easy/i.test(i.kind) && i.target?.hr);
   return it?.target || null;
 }
@@ -65,7 +80,7 @@ async function build(env, src) {
   const from = shift(today, -WINDOW_DAYS);
   const yesterday = shift(today, -1);
   const longFrom = shift(today, -365); // a year, so max HR seen isn't lost; VDOT/drift use the last 120 days
-  const [acts, logs, cachedRes, prevRes, formRes, longActs, longLogs] = await env.DB.batch([
+  const [acts, logs, cachedRes, prevRes, formRes, longActs, longLogs, goalRes, changeRes] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM activities WHERE person=?1 AND date BETWEEN ?2 AND ?3 ORDER BY date").bind(person, from, today),
     env.DB.prepare("SELECT week, item, km, duration, pace, hr, note, updated_at FROM progress WHERE person=?1 AND week BETWEEN ?2 AND ?3")
       .bind(person, mondayOf(from), week),
@@ -76,9 +91,18 @@ async function build(env, src) {
     env.DB.prepare("SELECT * FROM activities WHERE person=?1 AND date BETWEEN ?2 AND ?3 ORDER BY date").bind(person, longFrom, today),
     env.DB.prepare("SELECT week, item, km, duration, hr, note FROM progress WHERE person=?1 AND week BETWEEN ?2 AND ?3")
       .bind(person, mondayOf(longFrom), week),
+    env.DB.prepare("SELECT text, date, updated_at FROM goals WHERE person=?1").bind(person),
+    env.DB.prepare("SELECT week, data FROM plan_changes WHERE person=?1 AND week BETWEEN ?2 AND ?3")
+      .bind(person, mondayOf(longFrom), shift(week, 7)),
   ]);
-  const activities = acts.results, rows = logs.results, cached = cachedRes.results[0];
-  const dataAt = [...activities, ...rows].map((r) => r.updated_at || "").sort().pop() || null;
+  // Accepted plan changes (TJH) apply everywhere the plan is read below.
+  const changes = {};
+  for (const c of changeRes.results) try { changes[`${person}|${c.week}`] = JSON.parse(c.data); } catch {}
+  const planFor = (p, w) => basePlanFor(p, w, changes);
+  const activities = acts.results, rows = logs.results, cached = cachedRes.results[0], goal = goalRes.results[0];
+  // Newest change it's based on: sessions, and the target line (only when there are sessions at all).
+  const sessAt = [...activities, ...rows].map((r) => r.updated_at || "").sort().pop() || null;
+  const dataAt = sessAt && [sessAt, goal?.updated_at || ""].sort().pop();
 
   const base = { person, today, cached, dataAt };
   if (!dataAt) return { ...base, prompt: null };
@@ -86,8 +110,8 @@ async function build(env, src) {
   const todayIdx = (new Date(today + "T00:00:00Z").getUTCDay() + 6) % 7;
   const plan = planFor(person, week);
   const paces = plan.notes?.rows?.map((r) => `${r[2]} ${r[3]} ${r[4]}`).join("; ");
-  const weeks = [describeWeek(person, shift(week, -7), rows, null), describeWeek(person, week, rows, todayIdx)];
-  if (todayIdx >= 5) weeks.push(`NEXT WEEK: ${describeWeek(person, shift(week, 7), [], 0)}`);
+  const weeks = [describeWeek(person, shift(week, -7), rows, null, changes), describeWeek(person, week, rows, todayIdx, changes)];
+  if (todayIdx >= 5) weeks.push(`NEXT WEEK: ${describeWeek(person, shift(week, 7), [], 0, changes)}`);
   const dayPlan = (d) => {
     const pl = planFor(person, mondayOf(d));
     if (pl.empty) return "no plan entered";
@@ -122,7 +146,7 @@ async function build(env, src) {
     try { return JSON.parse(a.extra || "{}").start || ""; } catch { return ""; } })()));
   const science = sportsScience(flags, metrics, late);
 
-  const easy = easyTarget(person, week);
+  const easy = easyTarget(person, week, planFor);
   const describe = (a) => describeActivity(a, easy, metrics.maxHr);
   // Test pacing from data: best recent run of roughly race distance (4.5-6 km), so the model can't fall back on goal pace.
   let testLine = "";
@@ -138,12 +162,13 @@ async function build(env, src) {
     }
   }
   const doneYesterday = activities.filter((a) => a.date === yesterday).map(describe);
+  const target = goalContext(goal, today, sessions.filter((a) => a.type === "run"));
 
   const prompt = `You are a careful running coach writing TODAY's suggestion for an amateur runner (${person}).
 Today is ${today} (${DAY[todayIdx]}).${paces ? `\nTheir target paces: ${paces}.` : ""}
 TODAY'S PLAN (${DAY[todayIdx]}): ${dayPlan(today)}
 TOMORROW'S PLAN (${DAY[(todayIdx + 1) % 7]}): ${dayPlan(tomorrow)}
-${testLine}
+${target ? target + "\n" : ""}${testLine}
 PLAN (last week, this week${todayIdx >= 5 ? ", next week" : ""}). "upcoming" = not yet due; "NOT done" = missed:
 ${weeks.join("\n\n")}
 
@@ -201,7 +226,7 @@ In "yesterday", comment in 1-2 short sentences on how yesterday went against you
 was no suggestion): followed, swapped, overdone, skipped? Use the logged numbers. If nothing was planned, suggested
 or logged yesterday, use null.
 
-${RULES}
+${CHANGEABLE.has(person) ? PLAN_CHANGE_RULES : ""}${RULES}
 
 STYLE. Write like a sharp coach texting the runner, not a report:
 - Short, direct sentences. Numbers over adjectives. Name the runner's actual problem.
@@ -217,7 +242,8 @@ Reply with ONLY one JSON object:
  "why": "<max 200 chars, the one or two reasons from the data>",
  "next": "<max 140 chars, tomorrow, with its key target>",
  "yesterday": "<max 160 chars, how yesterday went vs the suggestion/plan, no advice, or null>",
- "science": "<max 260 chars, the physiology/biomechanics behind today's advice: name the tissue or system and the mechanism>"}`;
+ "science": "<max 260 chars, the physiology/biomechanics behind today's advice: name the tissue or system and the mechanism>"${CHANGEABLE.has(person) ? `,
+ "plan_change": null or {"week": "this"|"next", "why": "<max 160 chars>", "sessions": [{"day": "Tue", "kind": "<one of: ${CHANGE_KIND_LIST}>", "title": "<max 50 chars, e.g. E 6 km + 4 strides>", "meta": "<max 40 chars or empty>"}]}` : ""}}`;
 
   return { ...base, prompt, form: flags?.text || null, numbers: numbers.card, prehab: science.prehab };
 }
@@ -231,11 +257,13 @@ export const onRequestPost = handle(async ({ request, env }) => {
   const body = await request.json().catch(() => ({}));
   const today = DATE.test(body.today || "") ? body.today : new Date().toISOString().slice(0, 10);
   const { person } = key({ person: body.person, week: mondayOf(today) }, { item: false });
-  const [row, latest] = await env.DB.batch([
+  const [row, latest, ref] = await env.DB.batch([
     env.DB.prepare("SELECT data, data_at FROM suggestions WHERE person=?1 AND date=?2").bind(person, today),
     env.DB.prepare("SELECT max(u) AS m FROM (SELECT updated_at AS u FROM activities WHERE person=?1 " +
-      "UNION ALL SELECT updated_at FROM progress WHERE person=?1)").bind(person),
+      "UNION ALL SELECT updated_at FROM progress WHERE person=?1 UNION ALL SELECT updated_at FROM goals WHERE person=?1)").bind(person),
+    env.DB.prepare("SELECT * FROM refreshes WHERE person=?1 AND date=?2").bind(person, today),
   ]);
   const r = row.results[0], m = latest.results[0]?.m || "";
-  return json({ suggestion: r ? JSON.parse(r.data) : null, newer: !!(r && m > (r.data_at || "")) });
+  return json({ suggestion: r ? JSON.parse(r.data) : null, newer: !!(r && m > (r.data_at || "")),
+    refresh: person === "WGW" ? null : refreshInfo(ref.results[0]) });
 });

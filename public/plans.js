@@ -126,8 +126,7 @@ function toItems(rows, targetFor = () => null) {
 
 const weeksBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / (7 * 864e5));
 
-/** @returns {{title, sub, items, notes?} | {empty: string}} */
-export function planFor(person, week) {
+function basePlan(person, week) {
   if (person === "TJH") {
     const n = weeksBetween(TJH_START, week);
     if (n < 0) return { empty: `The 8-week plan starts the week of ${TJH_START}.` };
@@ -136,17 +135,60 @@ export function planFor(person, week) {
     return {
       title: `Week ${n + 1} of 8` + (w.tag ? ` · ${w.tag}` : ""),
       sub: `~${w.km} km · Tue · Thu · Sat · Sun`,
-      items: toItems(w.s, tjhTarget),
-      notes: TJH_NOTES,
+      rows: w.s, targetFor: tjhTarget, notes: TJH_NOTES,
     };
   }
-  if (person === "WGW") {
-    return { title: "My Running Week", sub: "3 runs · pace min/km · HR bpm", items: toItems(WGW_WEEK) };
-  }
+  if (person === "WGW") return { title: "My Running Week", sub: "3 runs · pace min/km · HR bpm", rows: WGW_WEEK };
   if (person === "SJH") {
     const w = SJH_WEEKS[week];
     if (!w) return { empty: "No plan entered for this week yet — add it to SJH_WEEKS in plans.js." };
-    return { title: w.label, sub: `${w.km} km running`, items: toItems(w.s) };
+    return { title: w.label, sub: `${w.km} km running`, rows: w.s };
   }
   return { empty: "Unknown runner." };
+}
+
+/**
+ * The week's plan, with an accepted change applied (TJH/WGW: Claude proposes, the runner accepts; see
+ * functions/api/plan.js). changes: { "TJH|2026-11-16": { from, sessions, why } } — days from `from` on are replaced.
+ * @returns {{title, sub, items, notes?, adjusted?} | {empty: string}}
+ */
+export function planFor(person, week, changes) {
+  const b = basePlan(person, week);
+  const ch = CHANGEABLE.has(person) ? changes?.[`${person}|${week}`] : null;
+  if (!ch) return b.empty ? b : { title: b.title, sub: b.sub, items: toItems(b.rows, b.targetFor), notes: b.notes };
+  const rows = [...(b.rows || []).filter((r) => DAY_INDEX[r[0]] < ch.from),
+    ...ch.sessions.map((x) => [x.day, KIND_COLOR[x.kind], x.kind, x.title, x.meta || ""])]
+    .sort((x, y) => DAY_INDEX[x[0]] - DAY_INDEX[y[0]]); // stable: keeps a day's order
+  return { title: b.title || "Adjusted week", sub: b.empty ? "" : b.sub, items: toItems(rows, b.targetFor),
+    notes: b.notes, adjusted: ch.why || "" };
+}
+
+// ─── Plan changes (proposed by Claude in the daily suggestion, accepted by the runner) ──────────────────
+export const CHANGEABLE = new Set(["TJH", "WGW"]);
+const KIND_COLOR = {
+  Easy: C.easy, Long: C.easy, "Long · Easy": C.blue, Tempo: C.threshold, Threshold: C.threshold,
+  Interval: C.interval, Repetition: C.rep, "Goal pace": C.goal, Test: C.goal, Race: C.goal,
+  Strength: C.blue, Cross: C.blue, Rest: null,
+};
+export const CHANGE_KINDS = Object.keys(KIND_COLOR);
+// Plan text feeds every later prompt, so it is English workout notation only (no quotes, brackets or angle brackets).
+const PLAN_TEXT = /^[A-Za-z0-9 .,:;'’()+\-–—/&!?@×·%~≤≥=]*$/;
+const txt = (v, max, what) => {
+  const t = String(v ?? "").replace(/\s+/g, " ").trim();
+  if (t.length > max || !PLAN_TEXT.test(t)) throw new Error(`plan change: bad ${what}`);
+  return t;
+};
+
+/** Validates a change { from?, sessions: [{day, kind, title, meta?}], why } → cleaned copy, or throws. */
+export function cleanChange(c, from = 0) {
+  if (!c || !Array.isArray(c.sessions) || c.sessions.length > 10) throw new Error("plan change: bad sessions");
+  const sessions = c.sessions.map((x) => {
+    const day = String(x?.day || "").slice(0, 3);
+    if (!(day in DAY_INDEX) || DAY_INDEX[day] < from) throw new Error("plan change: bad day");
+    if (!(x.kind in KIND_COLOR)) throw new Error("plan change: bad kind");
+    const title = txt(x.kind === "Rest" ? x.title || "Rest" : x.title, 50, "title");
+    if (!title) throw new Error("plan change: no title");
+    return { day, kind: x.kind, title, meta: txt(x.meta, 40, "note") };
+  }).sort((x, y) => DAY_INDEX[x.day] - DAY_INDEX[y.day]);
+  return { from, sessions, why: txt(c.why, 200, "reason") };
 }

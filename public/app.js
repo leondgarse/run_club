@@ -1,4 +1,6 @@
-import { PEOPLE, planFor } from "./plans.js";
+import { PEOPLE, planFor as basePlanFor } from "./plans.js";
+// Every plan lookup goes through the accepted changes (TJH/WGW, /api/plan).
+const planFor = (p, w) => basePlanFor(p, w, state.planChanges);
 import { t as tr, tKind, localized, applyStatic, setLang, setTheme, currentLang, currentTheme } from "./i18n.js";
 
 const HISTORY_WEEKS = 5;
@@ -50,6 +52,8 @@ const state = {
   wgw: null, // public Garmin summary for WGW (wgw.json): suggestion, calendar, weekly minutes
   hist: new Map(), // "SJH" -> { activities, logs, at } (self-logged history, 26 weeks)
   today: new Map(), // "SJH" -> { suggestion, reason, loading, error, at, dirty }
+  goals: {}, // "SJH" -> { text, date, zh } one-line target at the top of the tab (/api/goal)
+  planChanges: {}, // "TJH|2026-11-16" -> { from, sessions, why, source_date } accepted plan changes (/api/plan)
 };
 const thisWeek = () => iso(mondayOf(new Date()));
 const doneSet = (p, w) => {
@@ -102,7 +106,99 @@ async function load(from, to) {
   render();
 }
 const historyRange = () => [iso(addDays(fromIso(state.week), -7 * (HISTORY_WEEKS - 1))), state.week];
-const refresh = () => load(...historyRange());
+const refresh = () => (loadGoals(), loadPlanChanges(), load(...historyRange()));
+
+// ── Plan changes (TJH/WGW): Claude proposes in the daily suggestion, the runner accepts or dismisses ──
+async function loadPlanChanges() {
+  try {
+    const from = iso(addDays(mondayOf(new Date()), -7 * 26)), to = iso(addDays(mondayOf(new Date()), 7));
+    state.planChanges = (await api(`/api/plan?from=${from}&to=${to}`)).changes || {};
+  } catch { return; }
+  if (!sheet.item && !act.open && !goalSheet.p) render();
+}
+const DAY_LONG = { Mon: "Mon", Tue: "Tue", Wed: "Wed", Thu: "Thu", Fri: "Fri", Sat: "Sat", Sun: "Sun" };
+const proposalOf = (p) => (p === "WGW" ? state.wgw?.suggestion : state.today.get(p)?.suggestion);
+const dismissKey = (p, s) => `planDismiss:${p}:${s.date}`;
+/** The proposal box inside the Today card ("" when there's none, it was dismissed, or its week is over). */
+function proposalBox(p, s) {
+  const pc = s?.plan_change;
+  if (!pc?.sessions || s.date !== iso(new Date()) || pc.week < thisWeek()) return "";
+  const cur = state.planChanges[`${p}|${pc.week}`];
+  if (cur?.source_date === s.date) return `<p class="smute sprop-ok">${tr("Plan change accepted ✓")}</p>`;
+  if (store.get(dismissKey(p, s))) return "";
+  const when = pc.week === thisWeek() ? tr("this week") : tr("next week");
+  return `<div class="sprop"><b>${tr("Proposed plan change · {w}", { w: when })}</b>
+    <p>${esc((currentLang() === "zh" && s.zh?.plan_why) || pc.why)}</p>
+    <ul>${pc.sessions.map((x) => `<li><span>${tr(DAY_LONG[x.day])}</span> ${esc(tKind(x.kind))} · ${esc(x.title)}${x.meta ? ` <small>(${esc(x.meta)})</small>` : ""}</li>`).join("")}</ul>
+    <div class="smute">${tr("Days not listed become rest. Earlier days stay as they are.")}</div>
+    <div class="sprop-btns"><button class="ghost" data-dismiss="${p}">${tr("Dismiss")}</button><button data-accept="${p}">${tr("Accept")}</button></div></div>`;
+}
+async function acceptProposal(p) {
+  const s = proposalOf(p), pc = s?.plan_change; if (!pc) return;
+  try {
+    const r = await api("/api/plan", { method: "POST", body: JSON.stringify({ person: p, today: iso(new Date()), week: pc.week, change: pc, source: s.date }) });
+    state.planChanges[`${p}|${pc.week}`] = r.change;
+    toast(tr("Plan updated ✓"));
+  } catch (e) { toast(e.message); }
+  render();
+}
+async function revertPlan(p, week) {
+  if (!confirm(tr("Go back to the original plan for this week?"))) return;
+  try {
+    await api("/api/plan", { method: "POST", body: JSON.stringify({ person: p, week, revert: true }) });
+    delete state.planChanges[`${p}|${week}`];
+  } catch (e) { toast(e.message); }
+  render();
+}
+
+// ── Target line (top of each runner's tab): English text, Chinese copy made on save ──
+// Same rule as lib/rules.js TEXT_RULES.goal (the server enforces it; this is for a friendly message first).
+const GOAL_RE = /^[A-Za-z0-9 .,:;'’()+\-–—/&!?#]*$/, GOAL_MAX = 60;
+async function loadGoals() {
+  try { state.goals = (await api("/api/goal")).goals || {}; } catch { return; }
+  if (!sheet.item && !act.open && !goalSheet.p) render();
+}
+function goalLine(pid) {
+  const g = state.goals[pid];
+  if (!g) return `<button class="goal add" data-goal="${pid}">${tr("+ Set a target")}</button>`;
+  const text = currentLang() === "zh" && g.zh ? g.zh : g.text;
+  let when = "";
+  if (g.date) {
+    const [, m, d] = g.date.split("-").map(Number);
+    const days = Math.round((fromIso(g.date) - fromIso(iso(new Date()))) / 864e5);
+    when = `<span>${m}.${d}</span><span>${esc(days > 0 ? tr("{n} days to go", { n: days }) : days === 0 ? tr("Today!") : tr("done"))}</span>`;
+  }
+  return `<button class="goal" data-goal="${pid}"><b>🎯 ${esc(text)}</b>${when}</button>`;
+}
+function openGoal(pid) {
+  const g = state.goals[pid];
+  goalSheet.p = pid;
+  $("#goalKind").textContent = pid;
+  $("#gText").value = g?.text || "";
+  $("#gDate").value = g?.date || "";
+  $("#gClear").hidden = !g;
+  $("#goalSheet").classList.add("show");
+  document.body.classList.add("noscroll");
+}
+function closeGoal() {
+  goalSheet.p = null;
+  $("#goalSheet").classList.remove("show");
+  document.body.classList.remove("noscroll");
+}
+const goalSheet = { p: null };
+async function saveGoal(clear) {
+  const p = goalSheet.p; if (!p) return;
+  const text = clear ? "" : $("#gText").value.replace(/\s+/g, " ").trim();
+  if (text.length > GOAL_MAX || !GOAL_RE.test(text)) return toast(tr("Target: English letters, digits and basic punctuation, up to 60 characters"));
+  const btn = $("#gSave"); btn.disabled = true;
+  try {
+    const r = await api("/api/goal", { method: "POST", body: JSON.stringify({ person: p, text, date: clear ? null : $("#gDate").value || null }) });
+    if (r.goal) state.goals[p] = r.goal; else delete state.goals[p];
+    if (p !== "WGW") dataChanged(p); // today's suggestion is now older than the target → ↻ Refresh shows
+    closeGoal(); render(); toast(tr("Saved ✓"));
+  } catch (e) { toast(e.message); }
+  btn.disabled = false;
+}
 
 async function setDone(p, w, item, done) {
   const set = doneSet(p, w);
@@ -170,7 +266,7 @@ function renderPerson(pid) {
   const s = summary(pid, state.week);
   if (!s) {
     const plan = planFor(pid, state.week);
-    let html = `<div class="hero"><h1>${esc(pid)}</h1><div class="sub">${esc(p.blurb)}</div></div>
+    let html = `<div class="hero" style="--c:${p.color}"><h1>${esc(pid)}</h1><div class="sub">${esc(p.blurb)}</div>${goalLine(pid)}</div>
       <div class="empty">${esc(tr(plan.empty))}</div>`;
     if (pid !== "WGW") html += (state.week === thisWeek() ? renderToday(pid, p.color) : "") + renderSelfLog(pid, p.color);
     return html;
@@ -181,7 +277,8 @@ function renderPerson(pid) {
   const isCur = state.week === thisWeek();
 
   let html = `<div class="hero" style="--c:${p.color}">
-      <h1>${esc(plan.title)}</h1><div class="sub">${esc(pid)} · ${esc(plan.sub)}</div>
+      ${goalLine(pid)}<h1>${esc(plan.title)}</h1><div class="sub">${esc(pid)} · ${esc(plan.sub)}</div>
+      ${plan.adjusted != null ? `<div class="adjusted">✎ <b>${tr("Adjusted")}</b> ${esc(plan.adjusted)} <button data-revert="${pid}">${tr("Revert")}</button></div>` : ""}
       <div class="progress"><div class="track"><div class="fill" style="width:${pct * 100}%;background:${pct === 1 ? "var(--ok)" : p.color}"></div></div>
       <b>${done}/${total}</b></div>
       ${km ? `<div class="sub">${tr("{n} km logged", { n: Math.round(km * 10) / 10 })}</div>` : ""}
@@ -259,6 +356,7 @@ function renderSuggestion(color) {
     ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
     ${s.why ? `<p>${esc(s.why)}</p>` : ""}
     ${s.next ? `<p class="smute">${tr("Tomorrow:")} ${esc(s.next)}</p>` : ""}
+    ${proposalBox("WGW", state.wgw.suggestion)}
   </div>`;
 }
 
@@ -337,11 +435,43 @@ async function loadToday(p) {
   state.today.set(p, { ...cur, loading: true, dirty: false });
   try {
     const d = await api("/api/today", { method: "POST", body: JSON.stringify({ person: p, today }) });
-    state.today.set(p, { suggestion: d.suggestion, newer: d.newer, date: today, at: Date.now() });
+    state.today.set(p, { suggestion: d.suggestion, newer: d.newer, refresh: d.refresh, date: today, at: Date.now() });
+    if (d.refresh?.pending) pollToday(p);
   } catch (e) {
     state.today.set(p, { ...cur, loading: false, error: e.message, date: today, at: Date.now() });
   }
   if ((state.tab === p || state.tab === "board") && !sheet.item && !act.open) render();
+}
+
+/** While a refresh is being written on the Mac, re-read the card every 20 s (one timer per runner). */
+const polls = new Map();
+function pollToday(p) {
+  if (polls.has(p)) return;
+  polls.set(p, setTimeout(() => { polls.delete(p); loadToday(p); }, 20_000));
+}
+
+async function requestRefresh(p) {
+  const t = state.today.get(p) || {};
+  try {
+    const r = await api("/api/refresh", { method: "POST", body: JSON.stringify({ person: p, today: iso(new Date()) }) });
+    state.today.set(p, { ...t, refresh: r, refreshError: null });
+    if (r.pending) pollToday(p);
+  } catch (e) {
+    state.today.set(p, { ...t, refreshError: e.message });
+  }
+  render();
+}
+
+/** ↻ Refresh after new sessions (max 5/day): queued on the site, written by Claude on the Mac. */
+function refreshLine(p, t) {
+  const r = t?.refresh;
+  if (!r) return "";
+  if (r.pending) return `<p class="smute srefresh">${tr("Rewriting… usually 1–3 min.")}</p>`;
+  const err = t.refreshError ? `<p class="smute">${esc(t.refreshError)}</p>`
+    : r.failed ? `<p class="smute">${tr("The last refresh didn't go through (it wasn't counted). Try again later.")}</p>` : "";
+  if (!t.newer && t.suggestion) return err;
+  if (!r.left) return err + `<p class="smute">${tr("All {n} refreshes for today are used.", { n: r.used })}</p>`;
+  return err + `<button class="srefresh-btn" data-refresh="${p}">${tr("↻ Refresh suggestion")}<small>${tr("{n} left today", { n: r.left })}</small></button>`;
 }
 
 /** New sessions: refetch history and let the server decide whether today's suggestion needs rewriting. */
@@ -353,7 +483,7 @@ function dataChanged(p) {
 function suggestionCard(s, color, mute) {
   if (!s) return `<div class="sugg" style="--c:${color}"><div class="shead"><span>${tr("Today")}</span></div><p class="smute">${esc(mute)}</p></div>`;
   s = localized(s);
-  const by = s.by === "claude" ? tr("by Claude · 9:00") : "";
+  const by = s.by === "claude" ? tr("by Claude · {t}", { t: s.at || "9:00" }) : "";
   return `<div class="sugg" style="--c:${CALL_COLOR[s.call] || color}">
     <div class="shead"><span>${tr("Today")}${by ? `<small class="sby">${by}</small>` : ""}</span><b class="call">${esc(tr(CALL_LABEL[s.call] || s.call))}</b></div>
     ${s.yesterday ? `<p class="syest"><b>${tr("Yesterday")}</b> ${esc(s.yesterday)}</p>` : ""}
@@ -377,13 +507,14 @@ function renderToday(p, color) {
   const today = iso(new Date());
   if (!t || (!t.loading && (t.dirty || t.date !== today || Date.now() - t.at > 30 * 60_000))) queueMicrotask(() => loadToday(p));
   if (t?.suggestion && t.suggestion.date === today) {
-    return suggestionCard(t.suggestion, color).replace(/<\/div>\s*$/, t.newer
-      ? `<p class="smute">${tr("New sessions logged since this was written. They're in tomorrow's 9:00 suggestion.")}</p></div>` : "</div>");
+    const note = t.newer && !t.refresh?.pending
+      ? `<p class="smute">${tr(t.refresh?.left ? "Sessions or target changed since this was written." : "New sessions logged since this was written. They're in tomorrow's 9:00 suggestion.")}</p>` : "";
+    return suggestionCard(t.suggestion, color).replace(/<\/div>\s*$/, proposalBox(p, t.suggestion) + note + refreshLine(p, t) + "</div>");
   }
   const msg = !t || t.loading ? tr("Loading today's suggestion…")
     : t.error ? tr("Couldn't load the suggestion: {e}", { e: t.error })
     : tr("Claude writes this every morning at 9:00 from the sessions logged here. Nothing for today yet.");
-  return suggestionCard(null, color, msg);
+  return suggestionCard(null, color, msg).replace(/<\/div>\s*$/, (t && !t.loading && !t.error ? refreshLine(p, t) : "") + "</div>");
 }
 
 function selfDash(p) {
@@ -798,6 +929,16 @@ $("#main").addEventListener("click", async (e) => {
   const go = e.target.closest("[data-goto]");
   if (go) return goTab(go.dataset.goto);
   if (e.target.closest("[data-addact]")) return openAct(state.tab);
+  const ac = e.target.closest("[data-accept]");
+  if (ac) { ac.disabled = true; return acceptProposal(ac.dataset.accept); }
+  const ds = e.target.closest("[data-dismiss]");
+  if (ds) { const s = proposalOf(ds.dataset.dismiss); if (s) store.set(dismissKey(ds.dataset.dismiss, s), "1"); return render(); }
+  const rv = e.target.closest("[data-revert]");
+  if (rv) return revertPlan(rv.dataset.revert, state.week);
+  const gl = e.target.closest("[data-goal]");
+  if (gl) return openGoal(gl.dataset.goal);
+  const rf = e.target.closest("[data-refresh]");
+  if (rf) { rf.disabled = true; return requestRefresh(rf.dataset.refresh); }
   const ab = e.target.closest("[data-act]");
   if (ab) return openAct(state.tab, state.hist.get(state.tab)?.activities.find((a) => String(a.id) === ab.dataset.act));
   if (e.target.closest("[data-moreacts]")) { showAllActs = showAllActs === state.tab ? null : state.tab; return render(); }
@@ -825,6 +966,10 @@ $("#logUndo").addEventListener("click", async () => {
 });
 $("#actForm").addEventListener("submit", saveAct);
 $("#actClose").addEventListener("click", closeAct);
+$("#goalClose").addEventListener("click", closeGoal);
+$("#goalSheet").addEventListener("click", (e) => { if (e.target.id === "goalSheet") closeGoal(); });
+$("#goalForm").addEventListener("submit", (e) => { e.preventDefault(); saveGoal(false); });
+$("#gClear").addEventListener("click", () => saveGoal(true));
 $("#aDelete").addEventListener("click", deleteAct);
 $("#actSheet").addEventListener("click", (e) => { if (e.target.id === "actSheet") closeAct(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && act.open) closeAct(); });

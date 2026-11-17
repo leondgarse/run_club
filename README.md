@@ -11,11 +11,15 @@ public/index.html      ← layout + styles
 functions/api/progress.js    ← API (GET range / POST tick)
 functions/api/activities.js  ← TJH/SJH own activity log (GET range / POST add-edit / DELETE)
 functions/api/today.js       ← TJH/SJH daily suggestion (GET: prompt for Claude; POST: read today's)
+functions/api/plan.js        ← TJH/WGW plan changes: accept Claude's proposal / revert (GET range, POST)
+functions/api/goal.js        ← one-line target per runner (English; 中文 copy by Mistral on save)
+functions/api/refresh.js     ← TJH/SJH ↻ Refresh: queue a rewrite (max 5/day); the Mac polls the queue
 functions/api/extract.js     ← read a watch screenshot (Mistral vision)
 lib/                   ← shared helpers: week/plan text, form bands, coaching metrics, sports-science rules
 schema.sql, migrations/ ← D1 tables
 scripts/daily.sh       ← the 09:00 job (WGW hook → TJH/SJH suggestions → deploy)
 scripts/peer_suggest.py ← Claude writes TJH/SJH suggestions
+scripts/refresh.sh     ← every 2 min: serve queued ↻ Refresh requests (LaunchAgent local.run-club-refresh)
 docs/original-plans/   ← the plan pages the sessions in plans.js were copied from
 seed/                  ← local only (gitignored): history sent in chat, loaded with wrangler d1 execute
 ```
@@ -75,6 +79,21 @@ npm run dev            # http://localhost:8788  (PASSCODE / MISTRAL_API_KEY from
   `public/i18n.js` (keyed by the English text; anything untranslated falls back to English). Suggestions carry a
   Chinese copy (`zh`) made by a second Claude call at 09:00; WGW's copy passes the same privacy check.
   Plan content in `plans.js` (session titles, notes) is shown as written.
+- **🎯 Target** (top of each runner's tab, tap to edit): one line in English, ≤ 60 characters of letters, digits and
+  basic punctuation (`TEXT_RULES.goal`), plus an optional race date. `/api/goal` stores it with a Chinese copy made by
+  Mistral on save, shown when the language is 中文. It feeds the daily suggestion: `lib/goal.js` computes days to go,
+  the phase (build / taper / race week / race day, taper length by distance) and the race distance read from the text
+  vs the longest run in 28 days. Changing it marks today's suggestion out of date, so ↻ Refresh shows (counts in the 5).
+  WGW's private hook fetches WGW's own target into its context. Migration: `migrations/0005_goals.sql`.
+- **Plan changes (TJH, WGW)**: the daily suggestion may carry a `plan_change`, the sessions for the rest of this
+  week (from today) or for next week, with a reason. It's for when the week no longer fits (a target date needing a
+  taper/race week, sessions piling up, pain notes), not for one day. The Today card shows it with **Accept** /
+  **Dismiss** (dismiss is per device). Accept → `/api/plan` re-validates it (`cleanChange` in `plans.js`: kinds from a
+  fixed list, English workout notation, days from today on, this or next week only) and stores it in `plan_changes`
+  (`migrations/0006_plan_changes.sql`); `planFor(person, week, changes)` applies it everywhere (UI, prompts, calendar),
+  replacing the days from `from` on; days left out become rest. The header shows "✎ Adjusted · reason · Revert".
+  TJH's proposals are validated in `peer_suggest.py`; WGW's in the private `build_public.py` (also the privacy check)
+  and WGW's context gets the accepted change. SJH's plan comes from their own app and isn't changed.
 - **📊 All** tab: per runner, plan progress, this week's training minutes (by type; km run for TJH/SJH), and today's
   call + headline; the 5-week table shows plan % with that week's minutes underneath.
 
@@ -100,8 +119,14 @@ The calendar counts ticked plan sessions (logged time, else the plan's "NN min")
 activity on the same date and type as a ticked session replaces it, so nothing is counted twice.
 
 Today's suggestion: one per runner per day, from the plan (today/tomorrow spelled out) and the last 21 days of
-sessions. No sessions in 21 days → no suggestion. `POST /api/today` only reads it; if sessions were logged after it
-was written, the card says they'll be in the next morning's suggestion.
+sessions. No sessions in 21 days → no suggestion. `POST /api/today` only reads it.
+**↻ Refresh**: when sessions were logged after the suggestion was written (e.g. after Add activity), the card offers
+a refresh, max 5 per runner per day (`refreshes` table, `migrations/0004_refresh.sql`). The site can't run Claude, so
+`POST /api/refresh` only queues it; `scripts/refresh.sh` (LaunchAgent `local.run-club-refresh`, every 2 min, silent
+when idle) runs `peer_suggest.py OUT.sql TJH` and marks the request done. A failed one gets its count back; requests
+from an earlier day (Mac asleep) are closed. The card polls while it waits and shows the time it was written.
+With the Mac off, a request waits until it's back on. Install the agent once (same shape as `local.run-club-daily`,
+`StartInterval` 120 instead of a calendar time, no `WGW_HOOK`), then `launchctl bootstrap gui/$(id -u) <plist>`.
 Each suggestion (WGW's too) opens with a one-line comment on yesterday: what was done vs what was suggested.
 At 09:00 `scripts/daily.sh` → `scripts/peer_suggest.py` has **Claude** write TJH's and SJH's suggestions (`GET /api/today` gives
 the prompt; the result is upserted into `suggestions` with `by:"claude"`). The prompt carries computed HR CHECK (vs the plan's easy target) and FORM CHECK lines

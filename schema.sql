@@ -49,3 +49,33 @@ CREATE TABLE IF NOT EXISTS suggestions (
   created_at TEXT NOT NULL,
   PRIMARY KEY (person, date)
 );
+-- On-demand refresh of TJH's/SJH's daily suggestion (max 5 per runner per day).
+-- The site queues a request; scripts/refresh.sh on the Mac picks it up, runs Claude and marks it done.
+CREATE TABLE IF NOT EXISTS refreshes (
+  person       TEXT NOT NULL,
+  date         TEXT NOT NULL,              -- the suggestion's day
+  count        INTEGER NOT NULL DEFAULT 0, -- refreshes used that day (failed ones are given back)
+  requested_at TEXT,                       -- newest request (ISO); pending while done_at is NULL
+  done_at      TEXT,
+  failed       INTEGER NOT NULL DEFAULT 0, -- last request couldn't be served
+  PRIMARY KEY (person, date)
+);
+-- One-line target per runner shown at the top of their tab, e.g. "City Half Marathon" on a race date.
+-- Typed in English only (TEXT_RULES.goal); zh is a Mistral translation made on save. Feeds the daily suggestion.
+CREATE TABLE IF NOT EXISTS goals (
+  person     TEXT PRIMARY KEY,
+  text       TEXT NOT NULL,
+  date       TEXT,               -- race/target day, YYYY-MM-DD (optional)
+  zh         TEXT,               -- Chinese copy (null if translation failed; English is shown)
+  updated_at TEXT NOT NULL
+);
+-- Accepted plan changes (TJH/WGW): Claude proposes one in the daily suggestion, the runner taps Accept.
+-- data = {from, sessions:[{day, kind, title, meta}], why}; days from `from` on replace the plan in public/plans.js.
+CREATE TABLE IF NOT EXISTS plan_changes (
+  person      TEXT NOT NULL,
+  week        TEXT NOT NULL,      -- Monday of the changed week
+  data        TEXT NOT NULL,
+  source_date TEXT,               -- the suggestion's day it came from
+  accepted_at TEXT NOT NULL,
+  PRIMARY KEY (person, week)
+);
