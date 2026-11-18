@@ -1,9 +1,11 @@
 // /api/activities — a runner's own log of sessions, on or off the plan.
 //   GET    ?person=&from=YYYY-MM-DD&to=YYYY-MM-DD -> { activities: [...], logs: [progress rows for weeks in range] }
-//   POST   { person, id?, date, type, title, km, duration, pace, hr, cadence, note, extra? } -> { ok, activity }
+//   POST   { person, id?, date, type, title, km, duration, pace, hr, cadence, note, extra?, week?, item? } -> { ok, activity }
 //          extra: the "Additional" fields (EXTRA below). Keys not listed there that are already stored are kept.
-//   DELETE ?person=&id=
-import { DATE, HttpError, PEOPLE, fromQuery, handle, json } from "../../lib/shared.js";
+//          week+item: the plan session these are the details of. Its tick is kept and gets km/time/pace/HR/note too,
+//          so the plan's checks see them; the activity is what shows in My log (with up to 3 photos, ./actphoto.js).
+//   DELETE ?person=&id=   (also its photos; a linked session stays ticked)
+import { DATE, HttpError, ITEM, PEOPLE, fromQuery, handle, json } from "../../lib/shared.js";
 import { TEXT_RULES } from "../../lib/rules.js";
 
 /** Free text checked against lib/rules.js TEXT_RULES: rejected (not silently changed) if it breaks the rule. */
@@ -19,7 +21,8 @@ function text(k, v) {
 const TYPES = new Set(["run", "gym", "swim", "bike", "hike", "other"]);
 const TIME = /^(\d{1,2}:)?\d{1,2}:\d{2}$/;
 const PACE = /^\d{1,2}:\d{2}$/;
-const COLS = "id, person, date, type, title, km, duration, pace, hr, cadence, note, extra, created_at, updated_at";
+const COLS = "id, person, date, type, title, km, duration, pace, hr, cadence, note, extra, created_at, updated_at, week, item, " +
+  "(SELECT group_concat(idx) FROM activity_photos ph WHERE ph.activity_id = activities.id) AS photo_idx";
 
 function person(v) {
   if (!PEOPLE.has(v)) throw new HttpError(400, "bad person");
@@ -76,6 +79,11 @@ function clean(b) {
   };
   if (b.duration) { if (!TIME.test(b.duration)) throw new HttpError(400, "bad time"); a.duration = b.duration; }
   if (b.pace) { if (!PACE.test(b.pace)) throw new HttpError(400, "bad pace"); a.pace = b.pace; }
+  a.week = a.item = null;
+  if (b.week || b.item) {
+    if (!DATE.test(b.week || "") || !ITEM.test(b.item || "")) throw new HttpError(400, "bad session link");
+    a.week = b.week; a.item = b.item;
+  }
   return a;
 }
 
@@ -98,23 +106,38 @@ export const onRequestPost = handle(async ({ request, env }) => {
   const a = clean(b);
   const now = new Date().toISOString();
   let id = b.id != null ? Number(b.id) : null;
+  if (!id && a.week) { // one activity per plan session: a second "new" one for the same session updates the first
+    const linked = await env.DB.prepare("SELECT id FROM activities WHERE person=?1 AND week=?2 AND item=?3").bind(p, a.week, a.item).first();
+    if (linked) id = linked.id;
+  }
   if (id) {
     const old = await env.DB.prepare("SELECT extra FROM activities WHERE id=?1 AND person=?2").bind(id, p).first();
     if (!old) throw new HttpError(404, "activity not found");
     const extra = cleanExtra(b.extra, old.extra);
     await env.DB.prepare(
-      "UPDATE activities SET date=?3, type=?4, title=?5, km=?6, duration=?7, pace=?8, hr=?9, cadence=?10, note=?11, extra=?12, updated_at=?13 " +
-      "WHERE id=?1 AND person=?2"
-    ).bind(id, p, a.date, a.type, a.title, a.km, a.duration, a.pace, a.hr, a.cadence, a.note, extra, now).run();
+      "UPDATE activities SET date=?3, type=?4, title=?5, km=?6, duration=?7, pace=?8, hr=?9, cadence=?10, note=?11, extra=?12, updated_at=?13, " +
+      "week=?14, item=?15 WHERE id=?1 AND person=?2"
+    ).bind(id, p, a.date, a.type, a.title, a.km, a.duration, a.pace, a.hr, a.cadence, a.note, extra, now, a.week, a.item).run();
   } else {
     const r = await env.DB.prepare(
-      "INSERT INTO activities (person, date, type, title, km, duration, pace, hr, cadence, note, extra, created_at, updated_at) " +
-      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)"
-    ).bind(p, a.date, a.type, a.title, a.km, a.duration, a.pace, a.hr, a.cadence, a.note, cleanExtra(b.extra, null), now).run();
+      "INSERT INTO activities (person, date, type, title, km, duration, pace, hr, cadence, note, extra, created_at, updated_at, week, item) " +
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13, ?14)"
+    ).bind(p, a.date, a.type, a.title, a.km, a.duration, a.pace, a.hr, a.cadence, a.note, cleanExtra(b.extra, null), now, a.week, a.item).run();
     id = r.meta.last_row_id;
   }
+  let row = null;
+  if (a.week) { // keep the linked session ticked, with the same headline numbers
+    await env.DB.prepare(
+      "INSERT INTO progress (person, week, item, done_at, km, duration, pace, hr, note, updated_at) " +
+      "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?4) " +
+      "ON CONFLICT(person, week, item) DO UPDATE SET km=excluded.km, duration=excluded.duration, " +
+      "pace=excluded.pace, hr=excluded.hr, note=excluded.note, updated_at=excluded.updated_at",
+    ).bind(p, a.week, a.item, now, a.km, a.duration, a.pace, a.hr, a.note).run();
+    row = await env.DB.prepare("SELECT person, week, item, done_at, km, duration, pace, hr, note, has_photo, updated_at " +
+      "FROM progress WHERE person=?1 AND week=?2 AND item=?3").bind(p, a.week, a.item).first();
+  }
   const activity = await env.DB.prepare(`SELECT ${COLS} FROM activities WHERE id=?1`).bind(id).first();
-  return json({ ok: true, activity });
+  return json({ ok: true, activity, row });
 });
 
 export const onRequestDelete = handle(async ({ request, env }) => {
@@ -122,6 +145,10 @@ export const onRequestDelete = handle(async ({ request, env }) => {
   const p = person(q.person);
   const id = Number(q.id);
   if (!(id > 0)) throw new HttpError(400, "bad id");
-  await env.DB.prepare("DELETE FROM activities WHERE id=?1 AND person=?2").bind(id, p).run();
+  const own = await env.DB.prepare("SELECT 1 FROM activities WHERE id=?1 AND person=?2").bind(id, p).first();
+  if (own) await env.DB.batch([
+    env.DB.prepare("DELETE FROM activity_photos WHERE activity_id=?1").bind(id),
+    env.DB.prepare("DELETE FROM activities WHERE id=?1 AND person=?2").bind(id, p),
+  ]);
   return json({ ok: true });
 });

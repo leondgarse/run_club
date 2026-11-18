@@ -1,0 +1,24 @@
+<view class="wrap">
+  <view class="lkind mute">{{p}}</view>
+  <view class="ltitle">{{L.target}}</view>
+  <view class="field">{{L.target}} <text class="u">{{L.english}}</text>
+    <input class="inp" maxlength="60" value="{{text}}" placeholder="City Half Marathon" data-f="text" bindinput="onInput" />
+  </view>
+  <view class="field full">{{L.date}} <text class="u">{{L.optional}}</text>
+    <view class="row">
+      <picker mode="date" value="{{date || today}}" data-f="date" bindchange="onInput" style="flex:1"><view class="inp picker">{{date || L.choose}}</view></picker>
+      <button wx:if="{{date}}" class="x" bindtap="clearDate">✕</button>
+    </view>
+  </view>
+  <block wx:if="{{hr}}">
+    <view class="fgrid" style="margin-top:10px">
+      <view class="field">{{L.maxHr}} <text class="u">bpm</text><input class="inp" type="number" maxlength="3" value="{{maxHr}}" placeholder="186" data-f="maxHr" bindinput="onInput" /></view>
+      <view class="field">{{L.restHr}} <text class="u">bpm</text><input class="inp" type="number" maxlength="3" value="{{restHr}}" placeholder="55" data-f="restHr" bindinput="onInput" /></view>
+    </view>
+    <view class="hint">{{L.hint}}</view>
+  </block>
+  <view class="actions {{canClear ? '' : 'one'}}">
+    <button wx:if="{{canClear}}" class="btn ghost" disabled="{{busy}}" bindtap="clear">{{L.clear}}</button>
+    <button class="btn" disabled="{{busy}}" bindtap="save">{{L.save}}</button>
+  </view>
+</view>

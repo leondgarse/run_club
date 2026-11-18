@@ -10,3 +10,6 @@ __pycache__/
 *.pyc
 # runners' real screenshots (personal data)
 samples/
+# WeChat mini program: copies of public/plans.js and public/i18n-zh.js (scripts/mp-sync.sh)
+miniprogram/shared/
+miniprogram/project.private.config.json

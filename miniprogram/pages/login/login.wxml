@@ -1,0 +1,12 @@
+<view class="wrap">
+  <view class="ltitle" style="margin-top:24px">🏃 Run Club</view>
+  <view class="hint">{{L.hint}}</view>
+  <view class="lkind mute">{{L.who}}</view>
+  <view class="people">
+    <button wx:for="{{people}}" wx:key="id" class="who {{person === item.id ? 'on' : ''}}" style="--c:{{item.color}}" data-p="{{item.id}}" bindtap="pick">{{item.id}}</button>
+  </view>
+  <view class="field full">{{L.passcode}}
+    <input class="inp" password value="{{passcode}}" placeholder="{{L.passcode}}" bindinput="onPass" confirm-type="done" bindconfirm="submit" />
+  </view>
+  <view class="actions one"><button class="btn" disabled="{{busy}}" bindtap="submit">{{L.unlock}}</button></view>
+</view>

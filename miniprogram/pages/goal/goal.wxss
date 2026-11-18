@@ -1,0 +1,2 @@
+.row{display:flex;gap:8px;align-items:center}
+.x{width:46px;height:46px;margin-top:4px;border-radius:11px;background:var(--card2);color:var(--mute);display:flex;align-items:center;justify-content:center}

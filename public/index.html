@@ -253,9 +253,18 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
   .sheet select{width:100%;height:46px;border-radius:11px;border:1px solid var(--line);background:var(--bg);color:var(--text);
     padding:0 10px;font-size:16px;margin-top:4px}
   .sheet input[type=date]{-webkit-appearance:none;appearance:none}
-  #aShotLabel{margin-top:12px}
+  #aShots{margin-top:12px}
+  .shots{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}
+  .shot{position:relative;aspect-ratio:3/4;border-radius:10px;overflow:hidden;background:var(--bg);border:1px solid var(--line)}
+  .shot img{width:100%;height:100%;object-fit:cover;object-position:top}
+  .shot .ph{height:100%;display:flex;align-items:center;justify-content:center;color:var(--mute)}
+  .shot .shotbusy{position:absolute;left:0;right:0;bottom:0;padding:4px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;text-align:center}
+  .sheet .shot .shotx{position:absolute;top:4px;right:4px;width:26px;height:26px;margin:0;border-radius:13px;background:rgba(0,0,0,.6);color:#fff;font-size:12px;font-weight:700}
+  .sheet .detailsbtn{background:var(--vio-bg);color:var(--vio-fg);font-weight:700;height:46px}
+  .sheet .linkbtn{height:38px;margin-top:8px;font-size:13px}
   #aDelete[hidden]+button{grid-column:1/-1}
   #gClear[hidden]+button{grid-column:1/-1}
+  .ghint{margin:6px 0 0;color:var(--mute);font-size:12px}
   .xmore{margin-top:12px;border:1px solid var(--line);border-radius:12px;padding:0 12px}
   .xmore summary{height:44px;display:flex;align-items:center;justify-content:space-between;font-size:14px;font-weight:700;cursor:pointer;list-style:none}
   .xmore summary::-webkit-details-marker{display:none}
@@ -343,6 +352,13 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
     <label class="full"><b data-i18n="Target">Target</b> <span data-i18n="English, up to 60 characters (中文 is made automatically)">English, up to 60 characters (中文 is made automatically)</span>
       <input id="gText" maxlength="60" placeholder="City Half Marathon" lang="en" autocapitalize="sentences"></label>
     <label class="full"><b data-i18n="Race date">Race date</b> <span data-i18n="optional">optional</span><input id="gDate" type="date"></label>
+    <div id="gHr">
+      <div class="fgrid" style="margin-top:10px">
+        <label><b data-i18n="Max HR">Max HR</b> <span>bpm</span><input id="gMax" inputmode="numeric" maxlength="3" placeholder="186"></label>
+        <label><b data-i18n="Resting HR">Resting HR</b> <span>bpm</span><input id="gRest" inputmode="numeric" maxlength="3" placeholder="55"></label>
+      </div>
+      <p class="ghint" data-i18n="Optional. Max HR from a race or hard test (blank = highest logged); resting HR first thing in the morning. They set your easy heart-rate ceiling.">Optional. Max HR from a race or hard test (blank = highest logged); resting HR first thing in the morning. They set your easy heart-rate ceiling.</p>
+    </div>
     <div class="actions"><button type="button" class="ghost" id="gClear" data-i18n="Clear">Clear</button><button type="submit" id="gSave" data-i18n="Save">Save</button></div>
   </form>
 </div>
@@ -371,7 +387,7 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
       <div class="fgrid" id="aExtra"></div>
     </details>
     <label class="full"><b data-i18n="Note">Note</b><textarea id="aNote" rows="2" maxlength="300" placeholder="How did it feel? Splits, weather…" data-i18n-ph="How did it feel? Splits, weather…"></textarea></label>
-    <label class="addphoto" id="aShotLabel"><input type="file" accept="image/*" id="aShot" hidden><span id="aShotText" data-i18n="📷 Pick or paste a watch screenshot">📷 Pick or paste a watch screenshot</span></label>
+    <div id="aShots"></div>
     <div class="actions">
       <button type="button" class="ghost" id="aDelete" data-i18n="Delete">Delete</button>
       <button type="submit" class="primary" data-i18n="Save">Save</button>

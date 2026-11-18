@@ -1,0 +1,16 @@
+{
+  "description": "Run Club — WeChat mini program. Replace appid with your own (小程序后台 → 开发管理 → 开发设置).",
+  "appid": "touristappid",
+  "projectname": "run-club",
+  "compileType": "miniprogram",
+  "libVersion": "3.6.0",
+  "setting": {
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": true
+  },
+  "packOptions": { "ignore": [], "include": [] },
+  "editorSetting": { "tabIndent": "insertSpaces", "tabSize": 2 }
+}

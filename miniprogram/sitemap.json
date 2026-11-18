@@ -1,0 +1,1 @@
+{ "desc": "Private club app: not indexed by WeChat search.", "rules": [{ "action": "disallow", "page": "*" }] }

@@ -1,0 +1,189 @@
+<!-- Today card (TJH/SJH from /api/today, WGW from wgw.json) -->
+<template name="card">
+  <view class="sugg" style="--c:{{c.color}}">
+    <view class="shead">
+      <view>{{c.head}}<text wx:if="{{c.by}}" class="sby">{{c.by}}</text></view>
+      <text wx:if="{{c.call}}" class="call">{{c.call}}</text>
+    </view>
+    <view wx:if="{{c.mute}}" class="smute p">{{c.mute}}</view>
+    <block wx:else>
+      <view wx:if="{{c.yesterday}}" class="syest"><text class="b">{{L.yesterday}}</text> {{c.yesterday}}</view>
+      <view class="stitle">{{c.headline}}</view>
+      <view wx:if="{{c.session}}" class="ssess">{{c.session}}</view>
+      <view wx:if="{{c.why}}" class="p">{{c.why}}</view>
+      <view wx:if="{{c.form}}" class="p sform"><text class="b">{{L.form}}</text> {{c.form}}</view>
+      <view wx:if="{{c.science}}" class="p ssci"><text class="b">{{L.science}}</text> {{c.science}}</view>
+      <view wx:if="{{c.prehab.length}}" class="snum">
+        <view class="snum-h">{{L.prehab}}</view>
+        <view wx:for="{{c.prehab}}" wx:key="*this" class="li">• {{item}}</view>
+        <view class="smute small">{{L.prehabNote}}</view>
+      </view>
+      <view wx:if="{{c.numbers.length}}" class="snum">
+        <view class="snum-h" bindtap="toggleNumbers">{{L.numbers}} {{c.numOpen ? '▴' : '▾'}}</view>
+        <block wx:if="{{c.numOpen}}">
+          <view wx:for="{{c.numbers}}" wx:key="*this" class="li">• {{item}}</view>
+          <view class="smute small">{{L.numbersNote}}</view>
+        </block>
+      </view>
+      <view wx:if="{{c.next}}" class="smute p">{{c.next}}</view>
+    </block>
+    <view wx:if="{{c.proposal.ok}}" class="smute p">{{L.accepted}}</view>
+    <view wx:elif="{{c.proposal}}" class="sprop">
+      <view class="sprop-h">{{c.proposal.head}}</view>
+      <view class="p">{{c.proposal.why}}</view>
+      <view wx:for="{{c.proposal.sessions}}" wx:key="k" class="li"><text class="b">{{item.day}}</text> {{item.text}}<text wx:if="{{item.meta}}" class="smute"> ({{item.meta}})</text></view>
+      <view class="smute small">{{L.notListed}}</view>
+      <view class="sprop-btns">
+        <button class="ghost" data-p="{{pid}}" bindtap="dismiss">{{L.dismiss}}</button>
+        <button data-p="{{pid}}" bindtap="accept">{{L.accept}}</button>
+      </view>
+    </view>
+    <view wx:if="{{c.note}}" class="smute p">{{c.note}}</view>
+    <block wx:if="{{c.refresh}}">
+      <view wx:if="{{c.refresh.pending}}" class="smute p">{{L.rewriting}}</view>
+      <view wx:if="{{c.refresh.err}}" class="smute p">{{c.refresh.err}}</view>
+      <view wx:if="{{c.refresh.used}}" class="smute p">{{c.refresh.used}}</view>
+      <button wx:if="{{c.refresh.button}}" class="srefresh-btn" data-p="{{pid}}" bindtap="requestRefresh">{{c.refresh.button}}<text class="small">{{c.refresh.left}}</text></button>
+    </block>
+  </view>
+</template>
+
+<!-- Training calendar (26 weeks) + minutes per week -->
+<template name="dash">
+  <view class="section">{{L.section.training}}</view>
+  <view class="wcard">
+    <scroll-view scroll-x enhanced show-scrollbar="{{false}}" scroll-into-view="{{d.last}}">
+      <view class="wcal">
+        <view wx:for="{{d.cols}}" wx:for-item="col" wx:key="id" id="{{col.id}}" class="wcol">
+          <view class="cm">{{col.month}}</view>
+          <view wx:for="{{col.cells}}" wx:for-item="cell" wx:key="k" class="cd {{cell.hidden ? 'hid' : ''}}" style="{{cell.bg ? 'background:' + cell.bg : ''}}">
+            <view wx:if="{{cell.dot}}" class="dot {{cell.solo ? 'solo' : ''}}" style="background:{{cell.dot}}"></view>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+    <view class="wkey"><view wx:for="{{d.calKey}}" wx:key="t" class="ki"><view class="sw {{item.dot ? 'round' : ''}}" style="background:{{item.c}}"></view>{{item.label}}</view></view>
+  </view>
+  <view class="section">{{L.section.minutes}}</view>
+  <view class="wcard">
+    <view class="wbars">
+      <view wx:for="{{d.bars}}" wx:for-item="b" wx:key="k" class="wb">
+        <view class="wstack"><view wx:for="{{b.segs}}" wx:for-item="s" wx:key="t" style="height:{{s.h}}%;background:{{s.c}}"></view></view>
+        <text class="wl">{{b.label}}</text>
+      </view>
+    </view>
+    <view class="wkey"><view wx:for="{{d.barKey}}" wx:key="t" class="ki"><view class="sw" style="background:{{item.c}}"></view>{{item.label}}</view></view>
+    <view wx:if="{{d.note}}" class="legend">{{d.note}}</view>
+  </view>
+</template>
+
+<view class="hdr">
+  <view class="bar1">
+    <view class="weeknav">
+      <button class="nav" bindtap="prevWeek">‹</button>
+      <view class="wlabel" bindtap="thisWeek">{{h.weekRange}}<view class="wrel">{{h.weekRel}}</view></view>
+      <button class="nav" bindtap="nextWeek">›</button>
+    </view>
+    <button class="langbtn" bindtap="toggleLang">{{h.lang}}</button>
+  </view>
+  <view class="tabs">
+    <button wx:for="{{h.tabs}}" wx:key="id" class="tab {{item.on ? 'on' : ''}}" style="--c:{{item.color || 'var(--text)'}}" data-tab="{{item.id}}" bindtap="goTab">
+      <view wx:if="{{item.id !== 'board'}}" class="tdot" style="background:{{item.color}}"></view>{{item.label}}
+    </button>
+  </view>
+</view>
+
+<view class="wrap">
+  <!-- Runner tab -->
+  <block wx:if="{{p}}">
+    <view class="hero" style="--c:{{p.color}}">
+      <view wx:if="{{p.goal.add}}" class="goal add" data-p="{{p.id}}" bindtap="openGoal">{{p.goal.label}}</view>
+      <view wx:else class="goal" data-p="{{p.id}}" bindtap="openGoal"><text class="b">{{p.goal.text}}</text><text wx:if="{{p.goal.date}}" class="gm">{{p.goal.date}}</text><text wx:if="{{p.goal.left}}" class="gm">{{p.goal.left}}</text></view>
+      <block wx:if="{{p.empty}}">
+        <view class="h1">{{p.id}}</view><view class="sub">{{p.blurb}}</view>
+      </block>
+      <block wx:else>
+        <view class="h1">{{p.title}}</view><view class="sub">{{p.sub}}</view>
+        <view wx:if="{{p.adjusted !== null}}" class="adjusted">✎ <text class="b">{{L.adjusted}}</text> {{p.adjusted}} <text class="link" data-p="{{p.id}}" bindtap="revert">{{L.revert}}</text></view>
+        <view class="progress"><view class="track"><view class="fill" style="width:{{p.pct}}%;background:{{p.fill}}"></view></view><text class="b cnt">{{p.done}}/{{p.total}}</text></view>
+        <view wx:if="{{p.km}}" class="sub">{{p.km}}</view>
+      </block>
+    </view>
+
+    <view wx:if="{{p.empty}}" class="empty">{{p.empty}}</view>
+    <view wx:for="{{p.days}}" wx:for-item="day" wx:key="di" class="dayrow {{day.today ? 'today' : ''}}" style="--c:{{p.color}}">
+      <view class="date"><view class="dn">{{day.num}}</view><view class="dl">{{day.label}}</view></view>
+      <view class="stack">
+        <block wx:for="{{day.items}}" wx:for-item="it" wx:key="id">
+          <view wx:if="{{it.rest}}" class="rest">{{it.title}}</view>
+          <view wx:else class="run {{it.done ? 'done' : ''}} {{it.missed ? 'missed' : ''}}" hover-class="pressed" data-item="{{it.id}}" bindtap="tapItem">
+            <view class="cbar" style="background:{{it.color}}"></view>
+            <view class="body">
+              <view class="kind" style="color:{{it.color}}">{{it.kind}}<text wx:if="{{it.missed}}" class="mtag">{{L.missed}}</text></view>
+              <view class="title">{{it.title}}</view>
+              <view wx:if="{{it.meta}}" class="meta">{{it.meta}}</view>
+              <view wx:if="{{it.logged}}" class="logged">{{it.logged}}</view>
+            </view>
+            <view class="box">{{it.done ? '✓' : ''}}</view>
+          </view>
+        </block>
+      </view>
+    </view>
+
+    <view wx:if="{{p.notes}}" class="notes">
+      <view class="nsum" bindtap="toggleNotes">{{p.notes.title}} <text>{{p.notes.open ? '▴' : '▾'}}</text></view>
+      <block wx:if="{{p.notes.open}}">
+        <view wx:for="{{p.notes.rows}}" wx:key="tg" class="pace">
+          <view class="tg" style="background:{{item.c}}">{{item.tg}}</view><view class="nm">{{item.nm}}</view>
+          <view class="v">{{item.v}}<view class="vs">{{item.sm}}</view></view>
+        </view>
+        <view wx:for="{{p.notes.text}}" wx:key="*this" class="np">{{item}}</view>
+      </block>
+    </view>
+
+    <block wx:if="{{p.card}}"><template is="card" data="{{c: p.card, L: L, pid: p.id}}" /></block>
+
+    <block wx:if="{{p.log}}">
+      <view class="section secrow"><text>{{L.section.log}}</text><button class="addact" bindtap="addAct">{{L.addAct}}</button></view>
+      <view class="acts">
+        <view wx:for="{{p.log.acts}}" wx:key="id" class="act" hover-class="pressed" data-id="{{item.id}}" bindtap="openAct">
+          <view class="adot" style="background:{{item.c}}"></view>
+          <view class="abody"><view class="at">{{item.title}}</view><view class="al">{{item.line}}</view></view>
+        </view>
+        <view wx:if="{{!p.log.acts.length}}" class="cmute">{{p.log.empty}}</view>
+        <button wx:if="{{p.log.more}}" class="more" bindtap="moreActs">{{p.log.more}}</button>
+      </view>
+      <block wx:if="{{p.log.dash}}"><template is="dash" data="{{d: p.log.dash, L: L}}" /></block>
+    </block>
+    <block wx:if="{{p.dash}}"><template is="dash" data="{{d: p.dash, L: L}}" /></block>
+  </block>
+
+  <!-- 📊 All -->
+  <block wx:if="{{board}}">
+    <view class="section">{{board.title}}</view>
+    <view wx:for="{{board.cards}}" wx:for-item="c" wx:key="id" class="pcard" hover-class="pressed" style="--c:{{c.color}}" data-p="{{c.id}}" bindtap="goto">
+      <view class="top"><view class="name"><view class="ndot" style="background:{{c.color}}"></view>{{c.id}}</view><view class="cnt">{{c.count}}<text class="small mute">{{c.total}}</text></view></view>
+      <view class="blurb">{{c.blurb}}</view>
+      <block wx:if="{{c.pips}}">
+        <view class="progress"><view class="track"><view class="fill" style="width:{{c.pct}}%;background:{{c.fill}}"></view></view></view>
+        <view class="pips"><view wx:for="{{c.pips}}" wx:for-item="pip" wx:key="id" class="pip {{pip.st}}">{{pip.label}}</view></view>
+      </block>
+      <view wx:else class="blurb" style="margin-top:6px">{{c.emptyText}}</view>
+      <view wx:if="{{c.mins}}" class="bweek"><text class="b">{{c.mins}}</text><text wx:if="{{c.kmRun}}"> · {{c.kmRun}}</text>
+        <view wx:for="{{c.parts}}" wx:key="t" class="ki"><view class="sw" style="background:{{item.c}}"></view>{{item.label}}</view></view>
+      <view wx:if="{{c.today}}" class="btoday" style="--k:{{c.today.color}}"><text class="b">{{c.today.call}}</text>{{c.today.headline}}</view>
+    </view>
+
+    <view class="section">{{board.histTitle}}</view>
+    <view class="hist">
+      <view class="hrow"><view class="hname"></view><view wx:for="{{board.weeks}}" wx:key="wk" class="hth">{{item.label}}</view></view>
+      <view wx:for="{{board.rows}}" wx:for-item="r" wx:key="id" class="hrow">
+        <view class="hname">{{r.id}}</view>
+        <view wx:for="{{r.cells}}" wx:for-item="cell" wx:key="wk" class="hcell"><view class="cell" style="background:{{cell.bg}};color:{{cell.fg}}"><text>{{cell.text}}</text><text wx:if="{{cell.mins}}" class="cm2">{{cell.mins}}</text></view></view>
+      </view>
+    </view>
+    <view class="legend">{{board.legend}}</view>
+  </block>
+
+  <view class="status">{{status}}</view>
+</view>

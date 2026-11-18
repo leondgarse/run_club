@@ -14,6 +14,7 @@ functions/api/today.js       ← TJH/SJH daily suggestion (GET: prompt for Claud
 functions/api/plan.js        ← TJH/WGW plan changes: accept Claude's proposal / revert (GET range, POST)
 functions/api/goal.js        ← one-line target per runner (English; 中文 copy by Mistral on save)
 functions/api/refresh.js     ← TJH/SJH ↻ Refresh: queue a rewrite (max 5/day); the Mac polls the queue
+functions/api/actphoto.js    ← up to 3 photos/screenshots per My log activity (GET/PUT/DELETE by idx 0-2)
 functions/api/extract.js     ← read a watch screenshot (Mistral vision)
 lib/                   ← shared helpers: week/plan text, form bands, coaching metrics, sports-science rules
 schema.sql, migrations/ ← D1 tables
@@ -21,6 +22,8 @@ scripts/daily.sh       ← the 09:00 job (WGW hook → TJH/SJH suggestions → d
 scripts/peer_suggest.py ← Claude writes TJH/SJH suggestions
 scripts/refresh.sh     ← every 2 min: serve queued ↻ Refresh requests (LaunchAgent local.run-club-refresh)
 docs/original-plans/   ← the plan pages the sessions in plans.js were copied from
+miniprogram/           ← WeChat mini program (native UI on the same API); setup in docs/wechat-miniprogram.md (中文)
+functions/api/wxlogin.js ← mini program sign-in: wx.login code → session token (WX_APPID / WX_SECRET secrets)
 seed/                  ← local only (gitignored): history sent in chat, loaded with wrangler d1 execute
 ```
 
@@ -85,6 +88,10 @@ npm run dev            # http://localhost:8788  (PASSCODE / MISTRAL_API_KEY from
   the phase (build / taper / race week / race day, taper length by distance) and the race distance read from the text
   vs the longest run in 28 days. Changing it marks today's suggestion out of date, so ↻ Refresh shows (counts in the 5).
   WGW's private hook fetches WGW's own target into its context. Migration: `migrations/0005_goals.sql`.
+  The same sheet has two optional numbers for TJH/SJH (not WGW: their health data stays off the site): **max HR**
+  from a race or test and **resting HR** (`migrations/0008_profile_hr.sql`). Nothing else is asked (no age, weight
+  or birthday). `lib/metrics.js` uses the given max unless the logs beat it, and with a resting HR the easy ceiling is
+  74% of heart-rate reserve (Karvonen form of Daniels' E zone) instead of 79% of max.
 - **Plan changes (TJH, WGW)**: the daily suggestion may carry a `plan_change`, the sessions for the rest of this
   week (from today) or for next week, with a reason. It's for when the week no longer fits (a target date needing a
   taper/race week, sessions piling up, pain notes), not for one day. The Today card shows it with **Accept** /
@@ -151,6 +158,15 @@ npx wrangler d1 execute run-club --remote --file=seed/<file>.sql   # load histor
 ```
 
 ## Screenshot reading
+
+**Plan sessions (TJH/SJH)**: the log sheet keeps the quick fields, and "📷 Screenshots → full details in My log"
+opens Add activity prefilled from the session and linked to it (`activities.week/item`,
+`migrations/0007_activity_links_photos.sql`). Saving puts it in My log ("✓ plan") and copies km/time/pace/HR/note to the
+ticked session, so the plan's checks see them; one activity per session. WGW's log sheet keeps the single photo.
+**Up to 3 screenshots** per activity: each is read on its own (one Mistral call each, in turn) and merged into the
+form; a field one screenshot filled isn't overwritten by the next. They're stored with the activity (`activity_photos`).
+Images taller (or wider) than 3:1 are refused (long scrolling captures shrink until the model can't read them);
+the rest are resized to ~2.4 MP, so a tall phone screenshot keeps a readable width.
 
 In **Add activity**, pick a screenshot or just **paste** one (also: paste on TJH's/SJH's tab opens the form; paste in
 a session log attaches it as the photo; drag-and-drop works). `/api/extract` sends it to Mistral vision, which only

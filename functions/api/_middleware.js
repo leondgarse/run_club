@@ -1,16 +1,11 @@
-// Shared passcode for every /api/* route. Set it with: wrangler pages secret put PASSCODE
-import { json } from "../../lib/shared.js";
-
-function same(a, b) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < b.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
+// Every /api/* route needs the shared passcode (x-passcode header; set it with: wrangler pages secret put PASSCODE)
+// or a WeChat mini program session token (Authorization: Bearer …, from /api/wxlogin).
+// /api/wxlogin itself is open: it checks the WeChat login code, and the passcode when binding a new WeChat user.
+import { json, passcodeOk, wxSession } from "../../lib/shared.js";
 
 export async function onRequest({ request, env, next }) {
-  if (env.PASSCODE && !same(request.headers.get("x-passcode") || "", env.PASSCODE)) {
-    return json({ error: "unauthorized" }, 401);
-  }
-  return next();
+  if (new URL(request.url).pathname === "/api/wxlogin") return next();
+  if (passcodeOk(env, request.headers.get("x-passcode"))) return next();
+  if (await wxSession(env, request).catch(() => null)) return next();
+  return json({ error: "unauthorized" }, 401);
 }

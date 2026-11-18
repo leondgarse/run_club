@@ -159,7 +159,7 @@ async function loadGoals() {
   if (!sheet.item && !act.open && !goalSheet.p) render();
 }
 function goalLine(pid) {
-  const g = state.goals[pid];
+  const g = state.goals[pid]?.text ? state.goals[pid] : null;
   if (!g) return `<button class="goal add" data-goal="${pid}">${tr("+ Set a target")}</button>`;
   const text = currentLang() === "zh" && g.zh ? g.zh : g.text;
   let when = "";
@@ -176,7 +176,10 @@ function openGoal(pid) {
   $("#goalKind").textContent = pid;
   $("#gText").value = g?.text || "";
   $("#gDate").value = g?.date || "";
-  $("#gClear").hidden = !g;
+  $("#gClear").hidden = !g?.text;
+  $("#gHr").hidden = pid === "WGW"; // WGW's health data stays off the site
+  $("#gMax").value = g?.max_hr ?? "";
+  $("#gRest").value = g?.rest_hr ?? "";
   $("#goalSheet").classList.add("show");
   document.body.classList.add("noscroll");
 }
@@ -192,8 +195,9 @@ async function saveGoal(clear) {
   if (text.length > GOAL_MAX || !GOAL_RE.test(text)) return toast(tr("Target: English letters, digits and basic punctuation, up to 60 characters"));
   const btn = $("#gSave"); btn.disabled = true;
   try {
-    const r = await api("/api/goal", { method: "POST", body: JSON.stringify({ person: p, text, date: clear ? null : $("#gDate").value || null }) });
-    if (r.goal) state.goals[p] = r.goal; else delete state.goals[p];
+    const hr = p === "WGW" ? {} : { max_hr: $("#gMax").value.trim() || null, rest_hr: $("#gRest").value.trim() || null };
+    const r = await api("/api/goal", { method: "POST", body: JSON.stringify({ person: p, text, date: clear ? null : $("#gDate").value || null, ...hr }) });
+    state.goals[p] = r.goal;
     if (p !== "WGW") dataChanged(p); // today's suggestion is now older than the target → ↻ Refresh shows
     closeGoal(); render(); toast(tr("Saved ✓"));
   } catch (e) { toast(e.message); }
@@ -407,7 +411,8 @@ const durMin = (t) => (t ? Math.round(toSec(t) / 60) : 0);
 const actLine = (a) => {
   const x = parseExtra(a);
   return [a.km && `${a.km} km`, a.duration, a.pace && `${a.pace}/km`, a.hr && `♥ ${a.hr}`, a.cadence && `${a.cadence} spm`,
-    x.vert_osc_cm && `↕ ${x.vert_osc_cm} cm`, x.gct_ms && `${x.gct_ms} ms`].filter(Boolean).join(" · ");
+    x.vert_osc_cm && `↕ ${x.vert_osc_cm} cm`, x.gct_ms && `${x.gct_ms} ms`,
+    a.photo_idx && `📷 ${String(a.photo_idx).split(",").length}`, a.item && `✓ ${tr("plan")}`].filter(Boolean).join(" · ");
 };
 const actDate = (d) => {
   const x = fromIso(d);
@@ -497,7 +502,7 @@ function suggestionCard(s, color, mute) {
       <div class="smute">${tr("From recurring form issues in the logged runs. After easy runs or on rest days; stop if anything hurts.")}</div></details>` : ""}
     ${s.numbers?.length ? `<details class="snum"${store.get("numOpen") === "0" ? "" : " open"}><summary>${tr("Numbers")}</summary>
       <ul>${s.numbers.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
-      <div class="smute">${tr("VDOT and paces: Jack Daniels' formula. Easy ceiling ≈ 79% of max HR seen.")}</div></details>` : ""}
+      <div class="smute">${tr("VDOT and paces: Jack Daniels' formula. Easy ceiling: 79% of max HR, or 74% of HR reserve when a resting HR is set.")}</div></details>` : ""}
     ${s.next ? `<p class="smute">${tr("Next:")} ${esc(s.next)}</p>` : ""}
   </div>`;
 }
@@ -591,10 +596,15 @@ function extraCount() { return EXTRA_FIELDS.filter(([k]) => $(`#ax_${k}`).value.
 function updateExtraSummary() { const n = extraCount(); $("#aExtraN").textContent = n ? tr("{n} filled", { n }) : tr("optional"); }
 
 // Add / edit activity sheet
-const act = { open: false, p: null, id: null, busy: false, paceTouched: false };
-function openAct(p, a = null) {
-  Object.assign(act, { open: true, p, id: a?.id || null, paceTouched: !!a?.pace });
-  $("#actKind").textContent = `${p} · ${tr(a ? "Edit activity" : "New activity")}`;
+const act = { open: false, p: null, id: null, busy: false, paceTouched: false, link: null, shots: [], shotFilled: new Set() };
+/** opts.link {week, item}: the plan session this activity holds the details of; opts.prefill: field values. */
+function openAct(p, a = null, opts = {}) {
+  for (const sh of act.shots) if (sh.url) URL.revokeObjectURL(sh.url);
+  Object.assign(act, { open: true, p, id: a?.id || null, paceTouched: !!a?.pace, shotFilled: new Set(),
+    link: opts.link || (a?.week && a?.item ? { week: a.week, item: a.item } : null),
+    shots: a?.photo_idx ? String(a.photo_idx).split(",").map((i) => ({ idx: Number(i), existing: true })) : [] });
+  a = a || opts.prefill || null;
+  $("#actKind").textContent = `${p} · ${tr(act.id ? "Edit activity" : "New activity")}`;
   $("#aDate").value = a?.date || iso(new Date());
   $("#aDate").max = iso(new Date());
   $("#aType").value = a?.type || "run";
@@ -609,8 +619,9 @@ function openAct(p, a = null) {
   for (const [k] of EXTRA_FIELDS) $(`#ax_${k}`).value = x[k] ?? "";
   $("#aMore").open = extraCount() > 0;
   updateExtraSummary();
-  $("#aDelete").hidden = !a;
-  $("#aShotText").textContent = tr("📷 Pick or paste a watch screenshot");
+  $("#aDelete").hidden = !act.id;
+  if (act.link) $("#actKind").textContent += ` · ✓ ${tr("plan session")}`;
+  renderShots();
   $("#actSheet").classList.add("show");
   document.body.classList.add("noscroll");
 }
@@ -636,11 +647,14 @@ async function saveAct(e) {
   if (pace === null) return toast(tr("Pace should look like 5:40"));
   act.busy = true;
   try {
-    const { activity } = await api("/api/activities", { method: "POST", body: JSON.stringify({
+    const r = await api("/api/activities", { method: "POST", body: JSON.stringify({
       person: act.p, id: act.id, date: $("#aDate").value, type: $("#aType").value, title: $("#aTitle").value.trim(),
       km, duration, pace, hr: $("#aHr").value.trim(), cadence: $("#aCad").value.trim(), note: $("#aNote").value.trim(),
       extra: Object.fromEntries(EXTRA_FIELDS.map(([k]) => [k, $(`#ax_${k}`).value.trim()]).filter(([, v]) => v)),
+      week: act.link?.week || null, item: act.link?.item || null,
     }) });
+    if (r.row) { state.logs.set(`${act.p}|${r.row.week}|${r.row.item}`, r.row); doneSet(act.p, r.row.week).add(r.row.item); }
+    const activity = await syncShots(r.activity);
     const h = state.hist.get(act.p) || { activities: [], logs: [], ready: true };
     h.activities = [activity, ...h.activities.filter((a) => a.id !== activity.id)]
       .sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.id - a.id));
@@ -664,29 +678,94 @@ async function deleteAct() {
     render();
   } catch (err) { toast(tr("Couldn't delete: {e}", { e: err.message })); }
 }
-async function actFromShot(file) {
-  const label = $("#aShotText");
-  label.textContent = tr("Reading screenshot…");
+// Screenshots in Add activity: up to 3, each read separately and merged into the form, kept with the activity.
+const MAX_SHOTS = 3;
+const shotUrl = (p, id, idx) => `/api/actphoto?person=${p}&id=${id}&idx=${idx}`;
+const shotBlobs = new Map(); // "p|id|idx" -> objectURL of a stored photo
+function renderShots() {
+  const live = act.shots.filter((x) => !x.removed);
+  const thumbs = live.map((x) => {
+    const k = x.existing ? `${act.p}|${act.id}|${x.idx}` : null;
+    const src = x.url || (k && shotBlobs.get(k));
+    if (k && !src) queueMicrotask(() => loadShot(act.p, act.id, x.idx));
+    return `<div class="shot">${src ? `<img src="${src}" alt="">` : `<div class="ph">…</div>`}
+      ${x.reading ? `<span class="shotbusy">${tr("Reading…")}</span>` : ""}
+      <button type="button" class="shotx" data-shot="${act.shots.indexOf(x)}" aria-label="${tr("Remove")}">✕</button></div>`;
+  }).join("");
+  const add = live.length < MAX_SHOTS ? `<label class="addphoto shotadd"><input type="file" accept="image/*" id="aShot" multiple hidden>
+    <span>${tr(live.length ? "+ Add screenshot ({n}/{m})" : "📷 Pick or paste watch screenshots (up to {m})", { n: live.length, m: MAX_SHOTS })}</span></label>` : "";
+  $("#aShots").innerHTML = (thumbs ? `<div class="shots">${thumbs}</div>` : "") + add;
+}
+async function loadShot(p, id, idx) {
+  const k = `${p}|${id}|${idx}`;
+  if (shotBlobs.has(k)) return;
+  shotBlobs.set(k, "");
+  const res = await request(shotUrl(p, id, idx));
+  if (!res.ok) return;
+  shotBlobs.set(k, URL.createObjectURL(await res.blob()));
+  if (act.open && act.p === p && act.id === id) renderShots();
+}
+/** Add picked/pasted/dropped images (up to 3 in all), then read each one into the form. */
+async function addShots(files) {
+  const room = MAX_SHOTS - act.shots.filter((x) => !x.removed).length;
+  const list = [...files].filter((f) => /^image\//.test(f.type));
+  if (list.length > room) toast(tr("Up to {m} screenshots per activity", { m: MAX_SHOTS }));
+  const added = [];
+  for (const f of list.slice(0, Math.max(room, 0))) {
+    try {
+      const blob = await compress(f);
+      const sh = { blob, url: URL.createObjectURL(blob), reading: true };
+      act.shots.push(sh); added.push(sh);
+    } catch (e) { toast(e.message); }
+  }
+  renderShots();
+  for (const sh of added) { // one at a time: the free Mistral tier rate-limits bursts
+    await readShot(sh);
+    sh.reading = false;
+    if (act.open) renderShots();
+  }
+}
+async function readShot(sh) {
   try {
-    const blob = await compress(file);
-    const r = await api(`/api/extract?person=${act.p}`, { method: "POST", body: blob, headers: { "content-type": "image/jpeg" } });
+    const r = await api(`/api/extract?person=${act.p}`, { method: "POST", body: sh.blob, headers: { "content-type": "image/jpeg" } });
     const filled = [];
-    const set = (id, v) => { if (v != null && v !== "") { $(id).value = v; filled.push(id); } };
-    set("#aDate", r.date && r.date <= iso(new Date()) ? r.date : null);
-    set("#aType", r.type); set("#aKm", r.km); set("#aTime", r.duration);
+    // A field one screenshot filled isn't overwritten by the next (screens repeat summary values, often rounded).
+    const set = (id, v) => {
+      if (v == null || v === "" || act.shotFilled.has(id)) return;
+      $(id).value = v; filled.push(id); act.shotFilled.add(id);
+    };
+    set("#aDate", r.date && r.date <= iso(new Date()) && !act.link ? r.date : null);
+    set("#aType", act.link ? null : r.type); set("#aKm", r.km); set("#aTime", r.duration);
     if (!$("#aTitle").value.trim()) set("#aTitle", r.title); // keep a title the runner already typed
     set("#aHr", r.hr); set("#aCad", r.cadence);
     let nx = 0;
-    for (const [k] of EXTRA_FIELDS) if (r.extra?.[k] != null && r.extra[k] !== "") { set(`#ax_${k}`, r.extra[k]); nx++; }
+    for (const [k] of EXTRA_FIELDS) if (r.extra?.[k] != null && r.extra[k] !== "" && !act.shotFilled.has(`#ax_${k}`)) { set(`#ax_${k}`, r.extra[k]); nx++; }
     if (nx) $("#aMore").open = true;
     updateExtraSummary();
-    if (r.pace) { set("#aPace", r.pace); act.paceTouched = true; } else actAutoPace();
+    if (r.pace && !act.shotFilled.has("#aPace")) { set("#aPace", r.pace); act.paceTouched = true; } else actAutoPace();
     for (const id of filled) { const el = $(id); el.classList.add("justfilled"); setTimeout(() => el.classList.remove("justfilled"), 1800); }
     const notes = (r.notes || []).map((x) => tr(x)).join("; ");
     toast(filled.length ? tr("Filled {n} fields — check & Save", { n: filled.length }) + (notes ? ` (${notes})` : "")
-      : tr("Couldn't find stats in that image"));
+      : tr("No new stats in that screenshot"));
   } catch (err) { toast(err.message); }
-  label.textContent = tr("📷 Pick or paste a watch screenshot");
+}
+/** After the activity is saved: delete removed photos, upload new ones into free slots. Returns the activity. */
+async function syncShots(a) {
+  const used = new Set(), jobs = [];
+  for (const x of act.shots) {
+    if (x.existing && x.removed) jobs.push(api(shotUrl(act.p, a.id, x.idx), { method: "DELETE" }));
+    else if (x.existing) used.add(x.idx);
+  }
+  for (const x of act.shots.filter((y) => !y.existing && !y.removed)) {
+    const idx = [0, 1, 2].find((i) => !used.has(i));
+    if (idx == null) break;
+    used.add(idx);
+    jobs.push(api(shotUrl(act.p, a.id, idx), { method: "PUT", body: x.blob, headers: { "content-type": "image/jpeg" } })
+      .then(() => shotBlobs.set(`${act.p}|${a.id}|${idx}`, x.url)));
+  }
+  const res = await Promise.allSettled(jobs);
+  if (res.some((r) => r.status === "rejected")) toast(tr("Saved, but a screenshot didn't upload"));
+  return { ...a, photo_idx: [...used].sort().join(",") || null };
 }
 
 // Weekly totals per runner: WGW from Garmin (wgw.json, minutes only), others from what they log here.
@@ -783,7 +862,7 @@ const sheet = { p: null, w: null, item: null, paceTouched: false, busy: false };
 const photoUrls = new Map(); // "p|w|item|updated_at" -> objectURL
 
 function openSheet(p, w, it) {
-  Object.assign(sheet, { p, w, item: it.id, paceTouched: false });
+  Object.assign(sheet, { p, w, item: it.id, it, paceTouched: false });
   const l = logOf(p, w, it.id) || {};
   $("#logKind").textContent = `${p} · ${tr(DAYS[it.dayIndex])} · ${tKind(it.kind)}`;
   $("#logKind").style.color = it.color || "var(--mute)";
@@ -804,17 +883,47 @@ function closeSheet() {
   sheet.item = null;
 }
 
+/** TJH/SJH: the activity in My log holding this session's full details, if there is one. */
+const linkedAct = (p, w, item) => state.hist.get(p)?.activities.find((a) => a.week === w && a.item === item) || null;
+const SELF_LOG = new Set(["TJH", "SJH"]);
+function detailsButton(p, w, item) {
+  if (!SELF_LOG.has(p)) return "";
+  return linkedAct(p, w, item)
+    ? `<button type="button" class="detailsbtn" id="fDetails">${tr("📋 Full details & screenshots (in My log)")}</button>`
+    : `<label class="addphoto"><input type="file" accept="image/*" id="fShots" multiple hidden>${tr("📷 Screenshots (up to 3) → full details in My log")}</label>
+       <button type="button" class="ghost linkbtn" id="fDetails">${tr("Full details without a screenshot")}</button>`;
+}
+/** Open Add activity linked to the open session, prefilled from the plan and the quick fields above. */
+function openLinked(files) {
+  const { p, w, item, it } = sheet;
+  const a = linkedAct(p, w, item);
+  const type = /strength/i.test(it.kind) ? "gym" : /swim/i.test(it.kind) ? "swim" : "run";
+  const quick = { km: $("#fKm").value.trim(), duration: normTime($("#fTime").value) || "", pace: $("#fPace").value.trim(),
+    hr: $("#fHr").value.trim(), note: $("#fNote").value.trim() };
+  const prefill = { date: iso(addDays(fromIso(w), it.dayIndex)), type,
+    title: it.title.replace(/[^\p{L}\p{N} .,:;'’()+\-–—/×%°·~&!?]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 40), ...quick };
+  closeSheet();
+  if (a) {
+    // Quick fields typed just now win over the stored ones.
+    const merged = { ...a, ...Object.fromEntries(Object.entries(quick).filter(([, v]) => v)) };
+    openAct(p, merged);
+  } else openAct(p, null, { link: { week: w, item }, prefill });
+  if (files?.length) addShots(files);
+}
+
 async function renderPhoto() {
   const { p, w, item } = sheet;
   const l = logOf(p, w, item) || {};
   const box = $("#photoBox");
+  if (SELF_LOG.has(p) && !l.has_photo) { box.innerHTML = detailsButton(p, w, item); return; }
   if (!l.has_photo) {
     box.innerHTML = `<label class="addphoto"><input type="file" accept="image/*" id="fPhoto" hidden>
       ${tr("📷 Add photo or watch screenshot")}</label>`;
     return;
   }
   box.innerHTML = `<div class="thumb"><div class="ph">${tr("Loading photo…")}</div></div>
-    <div class="photobtns"><button type="button" id="fExtract">${tr("✨ Fill from screenshot")}</button><button type="button" id="fRemove" class="ghost">${tr("Remove")}</button></div>`;
+    <div class="photobtns"><button type="button" id="fExtract">${tr("✨ Fill from screenshot")}</button><button type="button" id="fRemove" class="ghost">${tr("Remove")}</button></div>
+    ${detailsButton(p, w, item)}`;
   const k = `${p}|${w}|${item}|${l.updated_at}`;
   if (!photoUrls.has(k)) {
     const res = await request(`/api/photo?${qsKey(p, w, item)}`);
@@ -825,11 +934,16 @@ async function renderPhoto() {
   box.querySelector(".thumb").innerHTML = `<img src="${photoUrls.get(k)}" alt="Session photo">`;
 }
 
+const MAX_ASPECT = 3; // height:width (either way); ~1.5 phone screens
 async function compress(file) {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-    const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const w = img.naturalWidth, h = img.naturalHeight;
+    // Long scrolling captures shrink until the text is unreadable for the model: refuse them.
+    if (Math.max(w, h) / Math.min(w, h) > MAX_ASPECT) throw new Error(tr("That image is too long to read. Crop it, or split it into up to 3 screenshots."));
+    // Pixel budget (not longest side), so a tall phone screenshot keeps a readable width.
+    const scale = Math.min(1, Math.sqrt(2_400_000 / (w * h)));
     const c = document.createElement("canvas");
     c.width = Math.round(img.naturalWidth * scale);
     c.height = Math.round(img.naturalHeight * scale);
@@ -978,7 +1092,13 @@ $("#aExtra").addEventListener("input", updateExtraSummary);
 $("#aTime").addEventListener("input", actAutoPace);
 $("#aTime").addEventListener("blur", () => { const t = normTime($("#aTime").value); if (t) $("#aTime").value = t; actAutoPace(); });
 $("#aPace").addEventListener("input", () => { act.paceTouched = !!$("#aPace").value; });
-$("#aShot").addEventListener("change", (e) => { if (e.target.files[0]) actFromShot(e.target.files[0]); e.target.value = ""; });
+$("#aShots").addEventListener("change", (e) => { if (e.target.id === "aShot" && e.target.files.length) addShots(e.target.files); e.target.value = ""; });
+$("#aShots").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-shot]"); if (!b) return;
+  const x = act.shots[Number(b.dataset.shot)]; if (!x) return;
+  if (x.existing) x.removed = true; else { URL.revokeObjectURL(x.url); act.shots.splice(act.shots.indexOf(x), 1); }
+  renderShots();
+});
 
 // Paste / drop a screenshot. Only acts when the clipboard actually holds an image, so pasting text into a field
 // still works normally. Add-activity form open → read it; session log open → attach as its photo;
@@ -988,20 +1108,24 @@ document.addEventListener("paste", (e) => {
   const file = imageFrom(e.clipboardData?.items);
   if (!file) return;
   e.preventDefault();
-  if (act.open) return actFromShot(file);
-  if (sheet.item) return uploadPhoto(file);
-  if (person(state.tab) && state.tab !== "WGW") { openAct(state.tab); actFromShot(file); }
+  if (act.open) return addShots([file]);
+  if (sheet.item) return SELF_LOG.has(sheet.p) ? openLinked([file]) : uploadPhoto(file);
+  if (person(state.tab) && state.tab !== "WGW") { openAct(state.tab); addShots([file]); }
 });
 $("#actForm").addEventListener("dragover", (e) => { e.preventDefault(); $("#actForm").classList.add("dropping"); });
 $("#actForm").addEventListener("dragleave", () => $("#actForm").classList.remove("dropping"));
 $("#actForm").addEventListener("drop", (e) => {
   e.preventDefault(); $("#actForm").classList.remove("dropping");
-  const file = [...(e.dataTransfer?.files || [])].find((f) => /^image\//.test(f.type));
-  if (file) actFromShot(file);
+  const files = [...(e.dataTransfer?.files || [])].filter((f) => /^image\//.test(f.type));
+  if (files.length) addShots(files);
 });
-$("#photoBox").addEventListener("change", (e) => { if (e.target.id === "fPhoto" && e.target.files[0]) uploadPhoto(e.target.files[0]); });
+$("#photoBox").addEventListener("change", (e) => {
+  if (e.target.id === "fPhoto" && e.target.files[0]) uploadPhoto(e.target.files[0]);
+  if (e.target.id === "fShots" && e.target.files.length) openLinked([...e.target.files]);
+});
 $("#photoBox").addEventListener("click", async (e) => {
   const { p, w, item } = sheet;
+  if (e.target.id === "fDetails") return openLinked();
   if (e.target.id === "fRemove") {
     try {
       const r = await api(`/api/photo?${qsKey(p, w, item)}`, { method: "DELETE" });

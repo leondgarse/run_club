@@ -1,0 +1,29 @@
+<view class="wrap">
+  <view class="lkind" style="color:{{color}}">{{kind}}</view>
+  <view class="ltitle">{{title}}</view>
+  <view class="fgrid">
+    <view class="field">{{L.distance}} <text class="u">km</text><input class="inp" type="digit" value="{{km}}" placeholder="5.5" data-f="km" bindinput="onInput" /></view>
+    <view class="field">{{L.time}} <text class="u">h:mm:ss</text><input class="inp" type="text" value="{{time}}" placeholder="32:10" data-f="time" bindinput="onInput" bindblur="blurTime" /></view>
+    <view class="field">{{L.pace}} <text class="u">/km</text><input class="inp" type="text" value="{{pace}}" placeholder="auto" data-f="pace" bindinput="onInput" bindblur="blurPace" /></view>
+    <view class="field">{{L.hr}} <text class="u">bpm</text><input class="inp" type="number" value="{{hr}}" placeholder="148" data-f="hr" bindinput="onInput" /></view>
+  </view>
+  <view class="field full">{{L.note}}<textarea class="ta" maxlength="300" value="{{note}}" placeholder="{{L.feel}}" data-f="note" bindinput="onInput" /></view>
+
+  <block wx:if="{{photo.has}}">
+    <view class="thumb"><image wx:if="{{photo.src}}" src="{{photo.src}}" mode="widthFix" /><view wx:else class="ph">{{photo.err || L.loading}}</view></view>
+    <view class="photobtns"><button class="btn vio" bindtap="extract">{{L.fill}}</button><button class="btn ghost" bindtap="removePhoto">{{L.remove}}</button></view>
+  </block>
+  <block wx:if="{{photo.self}}">
+    <button wx:if="{{photo.linked}}" class="btn vio" style="margin-top:12px" bindtap="details">{{L.linked}}</button>
+    <block wx:else>
+      <view class="addphoto" data-shots="1" bindtap="details">{{L.shots}}</view>
+      <button class="btn ghost linkbtn" bindtap="details">{{L.noShot}}</button>
+    </block>
+  </block>
+  <view wx:elif="{{!photo.has}}" class="addphoto" bindtap="addPhoto">{{L.addPhoto}}</view>
+
+  <view class="actions">
+    <button class="btn ghost" bindtap="untick">{{L.untick}}</button>
+    <button class="btn" bindtap="save">{{L.save}}</button>
+  </view>
+</view>

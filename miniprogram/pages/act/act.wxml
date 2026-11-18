@@ -1,0 +1,44 @@
+<view class="wrap">
+  <view class="lkind mute">{{head}}</view>
+  <view class="fgrid" style="margin-top:12px">
+    <view class="field">{{L.date}}<picker mode="date" value="{{date}}" end="{{today}}" bindchange="onDate"><view class="inp picker {{flash.date ? 'justfilled' : ''}}">{{date}}</view></picker></view>
+    <view class="field">{{L.type}}<picker range="{{types}}" value="{{typeIdx}}" disabled="{{lockType}}" bindchange="onType"><view class="inp picker {{flash.type ? 'justfilled' : ''}}">{{types[typeIdx]}}</view></picker></view>
+  </view>
+  <view class="field full">{{L.title}} <text class="u">{{L.optional}}</text><input class="inp {{flash.title ? 'justfilled' : ''}}" maxlength="40" value="{{title}}" placeholder="Easy run" data-f="title" bindinput="onInput" /></view>
+  <view class="fgrid" style="margin-top:10px">
+    <view class="field">{{L.distance}} <text class="u">km</text><input class="inp {{flash.km ? 'justfilled' : ''}}" type="digit" value="{{km}}" placeholder="5.0" data-f="km" bindinput="onInput" /></view>
+    <view class="field">{{L.time}} <text class="u">h:mm:ss</text><input class="inp {{flash.time ? 'justfilled' : ''}}" type="text" value="{{time}}" placeholder="32:10" data-f="time" bindinput="onInput" bindblur="blurTime" /></view>
+    <view class="field">{{L.pace}} <text class="u">/km</text><input class="inp {{flash.pace ? 'justfilled' : ''}}" type="text" value="{{pace}}" placeholder="auto" data-f="pace" bindinput="onInput" /></view>
+    <view class="field">{{L.hr}} <text class="u">bpm</text><input class="inp {{flash.hr ? 'justfilled' : ''}}" type="number" value="{{hr}}" placeholder="148" data-f="hr" bindinput="onInput" /></view>
+    <view class="field">{{L.cad}} <text class="u">spm</text><input class="inp {{flash.cad ? 'justfilled' : ''}}" type="number" value="{{cad}}" placeholder="170" data-f="cad" bindinput="onInput" /></view>
+  </view>
+
+  <view class="xmore">
+    <view class="xsum" bindtap="toggleMore"><text class="b">{{L.additional}}</text><text class="xn">{{extraN}} {{more ? '▴' : '▾'}}</text></view>
+    <block wx:if="{{more}}">
+      <view class="hint" style="margin:0 0 10px">{{L.xhint}}</view>
+      <view class="fgrid" style="padding-bottom:12px">
+        <view wx:for="{{extra}}" wx:key="k" class="field {{item.full ? 'span2' : ''}}">{{item.label}} <text wx:if="{{item.unit}}" class="u">{{item.unit}}</text>
+          <input class="inp {{flash['x_' + item.k] ? 'justfilled' : ''}}" type="{{item.type}}" maxlength="{{item.max}}" value="{{item.v}}" placeholder="{{item.ph}}" data-i="{{index}}" bindinput="onExtra" />
+        </view>
+      </view>
+    </block>
+  </view>
+
+  <view class="field full">{{L.note}}<textarea class="ta" maxlength="300" value="{{note}}" placeholder="{{L.feel}}" data-f="note" bindinput="onInput" /></view>
+
+  <view wx:if="{{shots.length}}" class="shots">
+    <view wx:for="{{shots}}" wx:key="i" class="shot">
+      <image wx:if="{{item.src}}" src="{{item.src}}" mode="aspectFill" />
+      <view wx:else class="ph">…</view>
+      <view wx:if="{{item.reading}}" class="shotbusy">{{L.reading}}</view>
+      <view class="shotx" data-i="{{item.i}}" catchtap="removeShot">✕</view>
+    </view>
+  </view>
+  <view wx:if="{{addLabel}}" class="addphoto" bindtap="pickShots">{{addLabel}}</view>
+
+  <view class="actions {{canDelete ? '' : 'one'}}">
+    <button wx:if="{{canDelete}}" class="btn ghost" bindtap="del">{{L.del}}</button>
+    <button class="btn" bindtap="save">{{L.save}}</button>
+  </view>
+</view>

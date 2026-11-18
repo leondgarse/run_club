@@ -40,7 +40,7 @@ function easyTarget(person, week, planFor) {
 function zoneOf(hr, maxHr) {
   const f = (hr / maxHr) * 100;
   const z = f < 80 ? "E (easy)" : f < 86 ? "M (steady/marathon)" : f < 93 ? "T (threshold)" : "I (VO2max/race)";
-  return `avg HR ${hr} = ${Math.round(f)}% of max seen ${maxHr} → ${z} zone`;
+  return `avg HR ${hr} = ${Math.round(f)}% of max ${maxHr} → ${z} zone`;
 }
 function runCheck(a, easy, maxHr) {
   if (a.type !== "run" || !a.hr) return "";
@@ -91,7 +91,7 @@ async function build(env, src) {
     env.DB.prepare("SELECT * FROM activities WHERE person=?1 AND date BETWEEN ?2 AND ?3 ORDER BY date").bind(person, longFrom, today),
     env.DB.prepare("SELECT week, item, km, duration, hr, note FROM progress WHERE person=?1 AND week BETWEEN ?2 AND ?3")
       .bind(person, mondayOf(longFrom), week),
-    env.DB.prepare("SELECT text, date, updated_at FROM goals WHERE person=?1").bind(person),
+    env.DB.prepare("SELECT text, date, updated_at, max_hr, rest_hr FROM goals WHERE person=?1").bind(person),
     env.DB.prepare("SELECT week, data FROM plan_changes WHERE person=?1 AND week BETWEEN ?2 AND ?3")
       .bind(person, mondayOf(longFrom), shift(week, 7)),
   ]);
@@ -138,7 +138,7 @@ async function build(env, src) {
   }
   const goalPace = plan.notes?.rows?.find((r) => r[0] === "G")?.[3];
   const goal5k = goalPace && /^\d+:\d{2}$/.test(goalPace) ? sec(goalPace) * 5 : null;
-  const metrics = coachMetrics(sessions, today, goal5k);
+  const metrics = coachMetrics(sessions, today, goal5k, goal || {});
   const numbers = describeMetrics(metrics);
   const recentFirst = [...activities].reverse().concat(formRes.results);
   const flags = formFlags(recentFirst);
@@ -189,7 +189,7 @@ ${science.prompt}
 Use these like a qualified coach and sports-rehab specialist would:
 - Explain the mechanism behind today's advice in plain words (which tissue/joint/system, and why), in "science".
 - Refer to the prehab routine when it fits the day (rest day, easy day); never pile it before a test or quality run.
-- Easy runs: current-fitness E pace and the easy HR ceiling, never the plan's goal-based easy pace if it is faster.
+- Easy runs: the easy HR ceiling, with the EASY PACE FROM THEIR OWN HR as the pace guide (else current-fitness E pace)${metrics.easyCeil ? ` (HR ≤${metrics.easyCeil}: use exactly this number for any easy-run HR cap, never another)` : ""}, never the plan's goal-based easy pace if it is faster.
 - Quality runs: current T/I paces; say when a plan pace is beyond current fitness and what to run instead.
 - If easy share is well under 80%, the main fix is slowing the easy runs down; say it with the numbers.
 - Cite the number and the principle in a few words ("VDOT 34.7 → E 6:50–7:30", "40% easy vs the 80/20 guide").
