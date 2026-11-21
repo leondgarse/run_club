@@ -170,7 +170,7 @@ Page({
         person: this.p, id: this.id, date: this.data.date, type: TYPES[this.data.typeIdx], title: String(this.data.title).trim(),
         km, duration, pace, hr: String(this.data.hr).trim(), cadence: String(this.data.cad).trim(), note: String(this.data.note).trim(),
         extra: Object.fromEntries(this.data.extra.map((f) => [f.k, String(f.v).trim()]).filter(([, v]) => v)),
-        week: this.link?.week || null, item: this.link?.item || null,
+        week: this.link?.week || null, item: this.link?.item || null, today: todayIso(),
       } });
       if (r.row) { S.logs.set(`${this.p}|${r.row.week}|${r.row.item}`, r.row); doneSet(this.p, r.row.week).add(r.row.item); }
       const activity = await this.syncShots(r.activity);
@@ -193,7 +193,7 @@ Page({
     wx.showModal({ content: t("Delete this activity?"), success: async ({ confirm }) => {
       if (!confirm) return;
       try {
-        await api(`/api/activities?person=${this.p}&id=${this.id}`, { method: "DELETE" });
+        await api(`/api/activities?person=${this.p}&id=${this.id}&today=${todayIso()}`, { method: "DELETE" });
         const h = S.hist.get(this.p);
         if (h) h.activities = h.activities.filter((a) => a.id !== this.id);
         dataChanged(this.p);

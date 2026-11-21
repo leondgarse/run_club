@@ -1,13 +1,12 @@
 // Plan changes for TJH/WGW: Claude proposes one in the daily suggestion (`plan_change`), the runner accepts it here.
-//   GET  /api/plan?from=&to=                                   -> { changes: { "TJH|2026-11-16": {from, sessions, why, source_date} } }
-//   POST /api/plan { person, today, week, change, source }     -> { change }   accept (re-validated here)
-//   POST /api/plan { person, week, revert: true }              -> { change: null }   back to the original week
-// Only this week (days from today on) or next week can change, so ticked past sessions never move.
+//   GET  /api/plan?from=&to=                              -> { changes: { "TJH|2026-11-16": {days, why, source_date} } }
+//   POST /api/plan { person, today, change, source }      -> { changes: { "WGW|2026-11-16": {...}, "WGW|2026-11-23": {...} } }
+//        accept: change = {start, end, why, sessions: [{date, kind, title, meta}]} (or the older {week, from, ...});
+//        re-validated and split per week by splitChange (public/plans.js). Each week stores the days it replaces, so a
+//        new change merges with one accepted earlier in that week; days already past never change.
+//   POST /api/plan { person, week, revert: true }         -> { change: null }   back to the original week
 import { DATE, HttpError, fromQuery, handle, json } from "../../lib/shared.js";
-import { CHANGEABLE, cleanChange } from "../../public/plans.js";
-
-const shift = (d, n) => new Date(Date.parse(d + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
-const dayIdx = (d) => (new Date(d + "T00:00:00Z").getUTCDay() + 6) % 7;
+import { CHANGEABLE, changeDays, splitChange } from "../../public/plans.js";
 
 export const onRequestGet = handle(async ({ request, env }) => {
   const { from, to } = fromQuery(request);
@@ -21,23 +20,32 @@ export const onRequestGet = handle(async ({ request, env }) => {
 
 export const onRequestPost = handle(async ({ request, env }) => {
   const b = await request.json().catch(() => ({}));
-  if (!CHANGEABLE.has(b.person) || !DATE.test(b.week || "")) throw new HttpError(400, "bad input");
+  if (!CHANGEABLE.has(b.person)) throw new HttpError(400, "bad input");
   if (b.revert) {
+    if (!DATE.test(b.week || "")) throw new HttpError(400, "bad input");
     await env.DB.prepare("DELETE FROM plan_changes WHERE person=?1 AND week=?2").bind(b.person, b.week).run();
     return json({ change: null });
   }
   const today = b.today;
   if (!DATE.test(today || "") || Math.abs(Date.parse(today + "T12:00:00Z") - Date.now()) > 36 * 3600e3) throw new HttpError(400, "bad date");
-  const thisWeek = shift(today, -dayIdx(today));
-  if (b.week !== thisWeek && b.week !== shift(thisWeek, 7)) throw new HttpError(400, "Only this week or next week can change");
-  const from = b.week === thisWeek ? dayIdx(today) : 0;
-  let change;
-  try { change = cleanChange(b.change, from); } catch (e) {
-    throw new HttpError(400, /bad day/.test(e.message) ? "This proposal is out of date (its days have passed)" : e.message);
+  let parts;
+  try { parts = splitChange(b.change, today); } catch (e) {
+    throw new HttpError(400, /passed/.test(e.message) ? "This proposal is out of date (its days have passed)" : e.message);
   }
-  await env.DB.prepare(
-    "INSERT INTO plan_changes (person, week, data, source_date, accepted_at) VALUES (?1, ?2, ?3, ?4, ?5) " +
-    "ON CONFLICT(person, week) DO UPDATE SET data=?3, source_date=?4, accepted_at=?5",
-  ).bind(b.person, b.week, JSON.stringify(change), DATE.test(b.source || "") ? b.source : null, new Date().toISOString()).run();
-  return json({ change: { ...change, source_date: b.source || null } });
+  const source = DATE.test(b.source || "") ? b.source : null, now = new Date().toISOString();
+  const marks = parts.map(() => "?").join(",");
+  const { results } = await env.DB.prepare(`SELECT week, data FROM plan_changes WHERE person=?1 AND week IN (${marks})`)
+    .bind(b.person, ...parts.map((x) => x.week)).all();
+  const old = Object.fromEntries(results.map((r) => { try { return [r.week, JSON.parse(r.data)]; } catch { return [r.week, null]; } }));
+  const changes = {}, stmts = [];
+  for (const { week, days, why } of parts) {
+    const data = { days: { ...(old[week] ? changeDays(old[week]) : {}), ...days }, why };
+    changes[`${b.person}|${week}`] = { ...data, source_date: source };
+    stmts.push(env.DB.prepare(
+      "INSERT INTO plan_changes (person, week, data, source_date, accepted_at) VALUES (?1, ?2, ?3, ?4, ?5) " +
+      "ON CONFLICT(person, week) DO UPDATE SET data=?3, source_date=?4, accepted_at=?5",
+    ).bind(b.person, week, JSON.stringify(data), source, now));
+  }
+  await env.DB.batch(stmts);
+  return json({ changes });
 });

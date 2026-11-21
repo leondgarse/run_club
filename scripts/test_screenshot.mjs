@@ -42,6 +42,49 @@ assert.equal(r.extra.stride_m, 1.04); assert.equal(r.date, null); assert.ok(r.no
 r = mapTranscription({ distance: { value: "4", unit: "km" }, pairs: [{ label: "Duration", value: "24:00" }, { label: "Avg pace", value: "4'00\"" }] }, today);
 assert.equal(r.pace, null);
 
+// Segments table on its own (Huawei-like, made-up numbers): Total row fills the summary; laps of 0.5 km stay,
+// a 20 m remainder is dropped; the zone list isn't a table
+r = mapTranscription({ title: null, datetime: null, distance: null, pairs: [], splits: [
+  { no: "1", km: "1.00", time: "05:30", pace: "5'30\"", hr: "140", cadence: "170" },
+  { no: "2", km: "1.00", time: "05:20", pace: "5'20\"", hr: "150", cadence: "172" },
+  { no: "3", km: "0.50", time: "02:15", pace: "4'30\"", hr: "160", cadence: "180" },
+  { no: "4", km: "1.00", time: "05:40", pace: "5'40\"", hr: "155", cadence: "171" },
+  { no: "5", km: "0.02", time: "00:07", pace: "5'50\"", hr: "150", cadence: "180" },
+], split_total: { km: "3.52", time: "18:52", pace: "5'22\"", hr: "151", cadence: "173" } }, today);
+assert.equal(r.km, 3.52); assert.equal(r.duration, "18:52"); assert.equal(r.pace, "5:22"); assert.equal(r.hr, 151);
+assert.equal(r.cadence, 173); assert.equal(r.extra.splits, "5:30 5:20 4:30 5:40"); assert.equal(r.extra.split_hr, "140 150 160 155");
+assert.equal(r.type, "run");
+
+// Per-km table (OPPO-like, 中文 units, made-up): complete table → distance/time summed; 10 m tail dropped
+r = mapTranscription({ splits: [
+  { no: "1", km: "1.00 公里", time: "00:06:00", pace: "6'00\"", hr: "145 次/分" },
+  { no: "2", km: "1.00 公里", time: "00:06:10", pace: "6'10\"", hr: "150 次/分" },
+  { no: "3", km: "1.00 公里", time: "00:05:50", pace: "5'50\"", hr: "155 次/分" },
+  { no: "4", km: "0.01 公里", time: "00:00:05", pace: "8'20\"", hr: "160 次/分" },
+] }, today);
+assert.equal(r.km, 3.01); assert.equal(r.duration, "18:05"); assert.equal(r.extra.splits, "6:00 6:10 5:50");
+assert.equal(r.extra.split_hr, "145 150 155");
+
+// HR transcribed under "cadence" (unit 次/分) is moved back to HR; a selector tab read as the distance loses to the table
+r = mapTranscription({ distance: { value: "1", unit: "公里" }, splits: [
+  { no: "1", km: "1.00公里", time: "00:06:00", pace: "6'00\"", hr: null, cadence: "145次/分" },
+  { no: "2", km: "1.00公里", time: "00:06:10", pace: "6'10\"", hr: null, cadence: "150次/分" },
+  { no: "3", km: "0.01公里", time: "00:00:05", pace: "8'20\"", hr: null, cadence: "160次/分" },
+] }, today);
+assert.equal(r.km, 2.01); assert.equal(r.extra.splits, "6:00 6:10"); assert.equal(r.extra.split_hr, "145 150");
+assert.ok(r.notes.includes("distance taken from the splits table"));
+
+// A partial table (cropped, doesn't start at 1) adds nothing up
+r = mapTranscription({ splits: [{ no: "4", km: "1.00", time: "06:00", pace: "6'00\"" }, { no: "5", km: "1.00", time: "06:00", pace: "6'00\"" }] }, today);
+assert.equal(r.km, null);
+
+// Ball sports are "other", not run
+r = mapTranscription({ title: "Table tennis", datetime: "11/15/26, 3:01 PM", pairs: [
+  { label: "Duration", value: "01:30:00" }, { label: "Avg heart rate", value: "100", unit: "bpm" },
+  { label: "Max heart rate", value: "150", unit: "bpm" }, { label: "Training load", value: "10" }] }, today);
+assert.equal(r.type, "other"); assert.equal(r.duration, "1:30:00"); assert.equal(r.hr, 100); assert.equal(r.extra.max_hr, 150);
+assert.equal(r.date, "2026-11-15"); assert.equal(r.extra.start, "15:01");
+
 // Dates
 assert.deepEqual(parseDateTime("2026-07-28 18:10", today), { date: "2026-07-28", start: "18:10" });
 assert.deepEqual(parseDateTime("11/14/26, 10:23 PM", today), { date: "2026-11-14", start: "22:23" });

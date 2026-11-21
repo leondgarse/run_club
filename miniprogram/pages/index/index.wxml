@@ -13,6 +13,7 @@
       <view wx:if="{{c.why}}" class="p">{{c.why}}</view>
       <view wx:if="{{c.form}}" class="p sform"><text class="b">{{L.form}}</text> {{c.form}}</view>
       <view wx:if="{{c.science}}" class="p ssci"><text class="b">{{L.science}}</text> {{c.science}}</view>
+      <view wx:if="{{c.club}}" class="p sclub"><text class="b">{{L.club}}</text> {{c.club}}</view>
       <view wx:if="{{c.prehab.length}}" class="snum">
         <view class="snum-h">{{L.prehab}}</view>
         <view wx:for="{{c.prehab}}" wx:key="*this" class="li">• {{item}}</view>
@@ -122,6 +123,7 @@
               <view class="kind" style="color:{{it.color}}">{{it.kind}}<text wx:if="{{it.missed}}" class="mtag">{{L.missed}}</text></view>
               <view class="title">{{it.title}}</view>
               <view wx:if="{{it.meta}}" class="meta">{{it.meta}}</view>
+              <view wx:if="{{it.moved}}" class="moved">{{it.moved}}</view>
               <view wx:if="{{it.logged}}" class="logged">{{it.logged}}</view>
             </view>
             <view class="box">{{it.done ? '✓' : ''}}</view>

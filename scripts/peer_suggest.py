@@ -26,7 +26,7 @@ import urllib.request
 SITE = "https://run-club-b9w.pages.dev"
 PEOPLE = ["TJH", "SJH"]
 CALLS = {"rest", "easy", "planned", "quality", "gym", "cross"}
-LIMITS = {"headline": 80, "session": 160, "why": 300, "next": 200, "yesterday": 220, "science": 320}
+LIMITS = {"headline": 80, "session": 160, "why": 300, "next": 200, "yesterday": 220, "science": 320, "club": 200}
 
 
 def fetch(person, today):
@@ -43,7 +43,7 @@ cm, W) and abbreviation (VDOT, HR, E/M/T/I/R paces, TT, RDL) exactly as written.
 Reply with ONLY the JSON object.
 
 """
-ZH_KEYS = ["headline", "session", "why", "next", "yesterday", "science", "form", "numbers", "prehab"]
+ZH_KEYS = ["headline", "session", "why", "next", "yesterday", "science", "club", "form", "numbers", "prehab"]
 
 
 def translate(s):
@@ -127,30 +127,40 @@ PLAN_TEXT = re.compile(r"^[A-Za-z0-9 .,:;'’()+\-–—/&!?@×·%~≤≥=]*$")
 
 
 def plan_change(c, today):
-    """Claude's optional proposal → {week, from, sessions, why} for this/next week, or None if absent or malformed."""
-    if not isinstance(c, dict) or c.get("week") not in ("this", "next") or not isinstance(c.get("sessions"), list):
+    """Claude's optional proposal → {start, end, why, sessions: [{date, kind, title, meta}]}, or None if absent or
+    malformed. A date range from today, at most 14 days; dates in it without a session are rest (public/plans.js)."""
+    if not isinstance(c, dict) or not isinstance(c.get("sessions"), list):
         return None
-    d = dt.date.fromisoformat(today)
-    monday = d - dt.timedelta(days=d.weekday())
-    start = d.weekday() if c["week"] == "this" else 0
-    week = (monday if c["week"] == "this" else monday + dt.timedelta(days=7)).isoformat()
+    try:
+        t = dt.date.fromisoformat(today)
+        start, end = dt.date.fromisoformat(str(c.get("start"))), dt.date.fromisoformat(str(c.get("end")))
+    except ValueError:
+        return None
+    start = max(start, t)
+    if end < start or end > t + dt.timedelta(days=13):
+        print("    plan_change dropped: bad dates", file=sys.stderr)
+        return None
     out = []
-    for x in c["sessions"][:10]:
+    for x in c["sessions"][:20]:
         if not isinstance(x, dict):
             return None
-        day, kind = str(x.get("day", ""))[:3], x.get("kind")
+        try:
+            d = dt.date.fromisoformat(str(x.get("date")))
+        except ValueError:
+            return None
+        kind = x.get("kind")
         title = " ".join(str(x.get("title") or ("Rest" if kind == "Rest" else "")).split())
         meta = " ".join(str(x.get("meta") or "").split())
-        if (day not in DAYS or DAYS.index(day) < start or kind not in KINDS or not title or len(title) > 50
-                or len(meta) > 40 or not PLAN_TEXT.match(title) or not PLAN_TEXT.match(meta)):
+        if (not start <= d <= end or kind not in KINDS or not title or len(title) > 50 or len(meta) > 40
+                or not PLAN_TEXT.match(title) or not PLAN_TEXT.match(meta)):
             print(f"    plan_change dropped: bad session {x!r}"[:200], file=sys.stderr)
             return None
-        out.append({"day": day, "kind": kind, "title": title, "meta": meta})
+        out.append({"date": d.isoformat(), "kind": kind, "title": title, "meta": meta})
     why = " ".join(str(c.get("why") or "").split())
     if not why or len(why) > 200 or not PLAN_TEXT.match(why):
         print("    plan_change dropped: bad reason", file=sys.stderr)
         return None
-    return {"week": week, "from": start, "sessions": sorted(out, key=lambda x: DAYS.index(x["day"])), "why": why}
+    return {"start": start.isoformat(), "end": end.isoformat(), "why": why, "sessions": sorted(out, key=lambda x: x["date"])}
 
 
 def clean(r, today):

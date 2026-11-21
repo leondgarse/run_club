@@ -12,19 +12,22 @@ import { sportsScience } from "../../lib/science.js";
 import { coachMetrics, describeMetrics } from "../../lib/metrics.js";
 import { RULES, untrusted } from "../../lib/rules.js";
 import { goalContext } from "../../lib/goal.js";
+import { CLUB_RULES, clubContext } from "../../lib/club.js";
 
 const WINDOW_DAYS = 21;
 const CHANGE_KIND_LIST = CHANGE_KINDS.join(", ");
 // TJH only (SJH's plan comes from their own app): Claude may propose a changed week; the runner decides.
 const PLAN_CHANGE_RULES = `PLAN CHANGE (optional, usually null). The runner sees it as a proposal and may accept it.
-Propose one ONLY when the current week, or next week, clearly no longer fits, for example:
-- the TARGET date falls inside or before the plan's remaining weeks, or needs a taper/race week the plan lacks;
-- missed or overdone sessions mean this week's remaining sessions would stack hard days or skip the long run;
-- a pain/illness note means the rest of the week should be easy or rest.
+Propose one ONLY when the coming days clearly no longer fit the plan, for example:
+- the TARGET (or its date) asks for it: a race/taper the plan lacks, or a pause/break the runner wrote there;
+- missed or overdone sessions mean the remaining sessions would stack hard days or skip the long run;
+- a pain/illness note means the next days should be easy or rest.
 Not for small things: today's call already handles one day. If the week is ALREADY ADJUSTED, don't propose again
-unless something new happened. "this" lists every session from TODAY to Sunday; "next" lists the whole of next week
-(on Sat/Sun only). Days you leave out become rest. Use the plan's notation (E, T, I, R, M, G paces, "6×800 m @ I").
-Keep the plan's style and weekly volume unless the reason is to cut it.
+unless something new happened. A change covers a DATE RANGE: "start" (today or later) to "end" (at most 13 days after
+today), and can cross into next week. List every session in that range with its date; dates in the range you leave
+out become rest, dates outside it keep the plan. Resolve relative words in the TARGET ("for 1 week", "till next
+Wednesday", "next week") from the date the target was set, and say the dates in "why". Use the plan's notation
+(E, T, I, R, M, G paces, "6×800 m @ I"). Keep the plan's style and weekly volume unless the reason is to cut it.
 
 `;
 
@@ -62,7 +65,7 @@ function describeActivity(a, easy, maxHr) {
   let extra = "";
   try {
     const x = a.extra ? JSON.parse(a.extra) : null;
-    if (x) extra = Object.entries(x).map(([k, v]) => `${k} ${typeof v === "number" ? v : untrusted(v, 120)}`).join(", ");
+    if (x) extra = Object.entries(x).filter(([k]) => k !== "nolink").map(([k, v]) => `${k} ${typeof v === "number" ? v : untrusted(v, 120)}`).join(", ");
   } catch {}
   const bits = [a.title && `title ${untrusted(a.title, 80)}`, a.km && `${a.km} km`, a.duration && `time ${a.duration}`, a.pace && `pace ${a.pace}/km`,
     a.hr && `avg HR ${a.hr}`, a.cadence && `cadence ${a.cadence}`, a.note && `note ${untrusted(a.note, 300)}`, extra].filter(Boolean);
@@ -71,7 +74,7 @@ function describeActivity(a, easy, maxHr) {
     (rc ? `\n    HR CHECK: ${rc}` : "") + (fc ? `\n    FORM CHECK: ${fc}` : "");
 }
 
-async function build(env, src) {
+async function build(env, src, wgwJson = null) {
   const today = DATE.test(src.today || "") ? src.today : new Date().toISOString().slice(0, 10);
   const { person } = key({ person: src.person, week: mondayOf(today) }, { item: false });
   if (person === "WGW") throw new HttpError(400, "WGW's suggestion comes from Garmin");
@@ -129,11 +132,12 @@ async function build(env, src) {
   // Coaching numbers over ~120 days: added activities plus ticked plan sessions with details (not double-counted).
   const sessions = [...longActs.results];
   const seen = new Set(sessions.map((a) => `${a.date}|${a.type}`));
+  const linked = new Set(sessions.filter((a) => a.week).map((a) => `${a.week}|${a.item}`)); // done on another day
   for (const r of longLogs.results) {
     const it = planFor(person, r.week).items?.find((i) => i.id === r.item);
     if (!it || !r.duration) continue;
     const date = shift(r.week, it.dayIndex), type = /strength/i.test(it.kind) ? "gym" : "run";
-    if (date > today || seen.has(`${date}|${type}`)) continue;
+    if (date > today || seen.has(`${date}|${type}`) || linked.has(`${r.week}|${r.item}`)) continue;
     sessions.push({ date, type, title: `${it.kind}: ${it.title}`, km: r.km, duration: r.duration, hr: r.hr, note: r.note });
   }
   const goalPace = plan.notes?.rows?.find((r) => r[0] === "G")?.[3];
@@ -164,6 +168,7 @@ async function build(env, src) {
   const doneYesterday = activities.filter((a) => a.date === yesterday).map(describe);
   const target = goalContext(goal, today, sessions.filter((a) => a.type === "run"));
 
+  const club = await clubContext(env, person, today, wgwJson);
   const prompt = `You are a careful running coach writing TODAY's suggestion for an amateur runner (${person}).
 Today is ${today} (${DAY[todayIdx]}).${paces ? `\nTheir target paces: ${paces}.` : ""}
 TODAY'S PLAN (${DAY[todayIdx]}): ${dayPlan(today)}
@@ -226,7 +231,11 @@ In "yesterday", comment in 1-2 short sentences on how yesterday went against you
 was no suggestion): followed, swapped, overdone, skipped? Use the logged numbers. If nothing was planned, suggested
 or logged yesterday, use null.
 
-${CHANGEABLE.has(person) ? PLAN_CHANGE_RULES : ""}${RULES}
+${CHANGEABLE.has(person) ? PLAN_CHANGE_RULES : ""}${club ? `${club}
+
+${CLUB_RULES}
+
+` : ""}${RULES}
 
 STYLE. Write like a sharp coach texting the runner, not a report:
 - Short, direct sentences. Numbers over adjectives. Name the runner's actual problem.
@@ -242,14 +251,17 @@ Reply with ONLY one JSON object:
  "why": "<max 200 chars, the one or two reasons from the data>",
  "next": "<max 140 chars, tomorrow, with its key target>",
  "yesterday": "<max 160 chars, how yesterday went vs the suggestion/plan, no advice, or null>",
- "science": "<max 260 chars, the physiology/biomechanics behind today's advice: name the tissue or system and the mechanism>"${CHANGEABLE.has(person) ? `,
- "plan_change": null or {"week": "this"|"next", "why": "<max 160 chars>", "sessions": [{"day": "Tue", "kind": "<one of: ${CHANGE_KIND_LIST}>", "title": "<max 50 chars, e.g. E 6 km + 4 strides>", "meta": "<max 40 chars or empty>"}]}` : ""}}`;
+ "science": "<max 260 chars, the physiology/biomechanics behind today's advice: name the tissue or system and the mechanism>",
+ "club": "<max 160 chars, one thing to learn from a clubmate (see CLUB), or null>"${CHANGEABLE.has(person) ? `,
+ "plan_change": null or {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "why": "<max 160 chars>", "sessions": [{"date": "YYYY-MM-DD", "kind": "<one of: ${CHANGE_KIND_LIST}>", "title": "<max 50 chars, e.g. E 6 km + 4 strides>", "meta": "<max 40 chars or empty>"}]}` : ""}}`;
 
   return { ...base, prompt, form: flags?.text || null, numbers: numbers.card, prehab: science.prehab };
 }
 
 export const onRequestGet = handle(async ({ request, env }) => {
-  const b = await build(env, fromQuery(request));
+  // WGW's public summary (a static asset) is the only WGW data another runner's prompt sees.
+  const wgw = await env.ASSETS?.fetch(new URL("/wgw.json", request.url)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const b = await build(env, fromQuery(request), wgw);
   return json({ person: b.person, today: b.today, dataAt: b.dataAt, prompt: b.prompt, form: b.form || null, numbers: b.numbers || null, prehab: b.prehab || [] });
 });
 

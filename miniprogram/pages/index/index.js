@@ -3,6 +3,7 @@ import { S, PEOPLE, SELF_LOG, person, planFor, doneSet, logOf, dataChanged, pars
 import { api, getStatic, me } from "../../utils/api.js";
 import { t as tr, tKind, localized, currentLang, setLang } from "../../utils/i18n.js";
 import { iso, addDays, mondayOf, fromIso, md, thisWeek, todayIso, todayIndex, toSec, DAYS, MONTHS } from "../../utils/dates.js";
+import { normChange } from "../../shared/plans.js";
 
 const HISTORY_WEEKS = 5;
 const POLL_MS = 45_000;
@@ -150,16 +151,19 @@ function goalVM(pid) {
 
 const proposalOf = (p) => (p === "WGW" ? S.wgw?.suggestion : S.today.get(p)?.suggestion);
 const dismissKey = (p, s) => `planDismiss:${p}:${s.date}`;
+const dayDate = (d) => `${tr(DAYS[(fromIso(d).getDay() + 6) % 7])} ${+d.slice(5, 7)}.${+d.slice(8)}`;
 function proposalVM(p, s) {
-  const pc = s?.plan_change;
-  if (!pc?.sessions || s.date !== todayIso() || pc.week < thisWeek()) return null;
-  const cur = S.planChanges[`${p}|${pc.week}`];
+  const pc = normChange(s?.plan_change);
+  if (!pc || s.date !== todayIso() || pc.end < todayIso()) return null;
+  const cur = S.planChanges[`${p}|${iso(mondayOf(fromIso(pc.start < todayIso() ? todayIso() : pc.start)))}`];
   if (cur?.source_date === s.date) return { ok: true };
   if (store.get(dismissKey(p, s))) return null;
+  const range = pc.start === pc.end ? dayDate(pc.start) : `${dayDate(pc.start)} → ${dayDate(pc.end)}`;
+  const sessions = pc.sessions.map((x, i) => ({ k: i, day: dayDate(x.date), text: `${tKind(x.kind)} · ${x.title}`, meta: x.meta || "" }));
   return {
-    head: tr("Proposed plan change · {w}", { w: pc.week === thisWeek() ? tr("this week") : tr("next week") }),
+    head: tr("Proposed plan change · {w}", { w: range }),
     why: (currentLang() === "zh" && s.zh?.plan_why) || pc.why,
-    sessions: pc.sessions.map((x, i) => ({ k: i, day: tr(x.day), text: `${tKind(x.kind)} · ${x.title}`, meta: x.meta || "" })),
+    sessions: sessions.length ? sessions : [{ k: 0, day: "", text: tr("Rest"), meta: "" }],
   };
 }
 
@@ -180,7 +184,7 @@ function cardVM(s, color, mute) {
     color: CALL_COLOR[s.call] || color, head: tr("Today"),
     by: s.by === "claude" ? tr("by Claude · {t}", { t: s.at || "9:00" }) : "",
     call: tr(CALL_LABEL[s.call] || s.call), yesterday: s.yesterday || "", headline: s.headline, session: s.session || "",
-    why: s.why || "", form: s.form || "", science: s.science || "", prehab: s.prehab || [], numbers: s.numbers || [],
+    why: s.why || "", form: s.form || "", science: s.science || "", club: s.club || "", prehab: s.prehab || [], numbers: s.numbers || [],
     next: s.next ? `${tr("Next:")} ${s.next}` : "",
   };
 }
@@ -259,12 +263,13 @@ function selfDash(p) {
   if (!h?.ready) return null;
   const entries = h.activities.map((a) => ({ date: a.date, type: a.type, min: durMin(a.duration), km: a.type === "run" ? +a.km || 0 : 0 }));
   const have = new Set(entries.map((e) => `${e.date}|${e.type}`));
+  const linked = new Set(h.activities.filter((a) => a.week).map((a) => `${a.week}|${a.item}`));
   for (const r of h.logs) {
     const it = planFor(p, r.week).items?.find((i) => i.id === r.item);
     if (!it) continue;
     const date = iso(addDays(fromIso(r.week), it.dayIndex));
     const type = /strength/i.test(it.kind) ? "gym" : "run";
-    if (have.has(`${date}|${type}`)) continue;
+    if (have.has(`${date}|${type}`) || linked.has(`${r.week}|${r.item}`)) continue; // also in My log (maybe another day)
     const planned = +((it.meta || "").match(/(\d+)\s*min/) || [])[1] || 0;
     entries.push({ date, type, min: r.duration ? durMin(r.duration) : planned, km: type === "run" ? +r.km || 0 : 0 });
   }
@@ -316,8 +321,15 @@ function personVM(pid) {
       pct: pct * 100, fill: pct === 1 ? "var(--ok)" : p.color,
       km: km ? tr("{n} km logged", { n: Math.round(km * 10) / 10 }) : "",
     });
+    // A session done on another day (its My log activity is linked to it) shows on the day it was done.
+    const doneOn = new Map();
+    for (const a of S.hist.get(pid)?.activities || []) {
+      if (a.week !== S.week || !set.has(a.item)) continue;
+      const di = Math.round((fromIso(a.date) - mon) / 864e5);
+      if (di >= 0 && di <= 6) doneOn.set(a.item, di);
+    }
     const byDay = new Map();
-    for (const it of plan.items) { if (!byDay.has(it.dayIndex)) byDay.set(it.dayIndex, []); byDay.get(it.dayIndex).push(it); }
+    for (const it of plan.items) { const di = doneOn.get(it.id) ?? it.dayIndex; if (!byDay.has(di)) byDay.set(di, []); byDay.get(di).push(it); }
     vm.days = [...byDay].sort((a, b) => a[0] - b[0]).map(([di, items]) => {
       const today = isCur && di === todayIndex();
       return {
@@ -326,7 +338,8 @@ function personVM(pid) {
           if (it.rest) return { id: it.id, rest: true, title: it.title };
           const d = set.has(it.id);
           const logged = d ? loggedLine(logOf(pid, S.week, it.id)) : "";
-          return { id: it.id, title: it.title, kind: tKind(it.kind), color: it.color, meta: it.meta, done: d,
+          const moved = doneOn.has(it.id) && doneOn.get(it.id) !== it.dayIndex ? tr("Planned {d}, done here", { d: tr(DAYS[it.dayIndex]) }) : "";
+          return { id: it.id, title: it.title, kind: tKind(it.kind), color: it.color, meta: it.meta, done: d, moved,
             missed: itemStatus(S.week, it, d) === "miss", logged: d ? logged || tr("+ add details") : "" };
         }),
       };
@@ -403,11 +416,11 @@ function boardVM() {
 const L = () => ({
   section: { training: tr("Training calendar"), minutes: tr("Minutes per week"), log: tr("My log") },
   addAct: tr("+ Add activity"), adjusted: tr("Adjusted"), revert: tr("Revert"), missed: tr("Missed"),
-  yesterday: tr("Yesterday"), form: tr("Form"), science: tr("Why it works"), prehab: tr("Prehab · 2×/week, ~15 min"),
+  yesterday: tr("Yesterday"), form: tr("Form"), science: tr("Why it works"), club: tr("Club"), prehab: tr("Prehab · 2×/week, ~15 min"),
   prehabNote: tr("From recurring form issues in the logged runs. After easy runs or on rest days; stop if anything hurts."),
   numbers: tr("Numbers"),
   numbersNote: tr("VDOT and paces: Jack Daniels' formula. Easy ceiling: 79% of max HR, or 74% of HR reserve when a resting HR is set."),
-  accepted: tr("Plan change accepted ✓"), notListed: tr("Days not listed become rest. Earlier days stay as they are."),
+  accepted: tr("Plan change accepted ✓"), notListed: tr("Other days in this range are rest; days outside it don't change."),
   dismiss: tr("Dismiss"), accept: tr("Accept"), rewriting: tr("Rewriting… usually 1–3 min."),
 });
 
@@ -490,10 +503,10 @@ Page({
 
   async accept(e) {
     const p = e.currentTarget.dataset.p;
-    const s = proposalOf(p), pc = s?.plan_change; if (!pc) return;
+    const s = proposalOf(p), pc = normChange(s?.plan_change); if (!pc) return;
     try {
-      const r = await api("/api/plan", { method: "POST", data: { person: p, today: todayIso(), week: pc.week, change: pc, source: s.date } });
-      S.planChanges[`${p}|${pc.week}`] = r.change;
+      const r = await api("/api/plan", { method: "POST", data: { person: p, today: todayIso(), change: pc, source: s.date } });
+      Object.assign(S.planChanges, r.changes || {});
       toast(tr("Plan updated ✓"));
     } catch (err) { toast(err.message); }
     render();

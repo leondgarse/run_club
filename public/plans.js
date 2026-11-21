@@ -156,8 +156,15 @@ export function planFor(person, week, changes) {
   const b = basePlan(person, week);
   const ch = CHANGEABLE.has(person) ? changes?.[`${person}|${week}`] : null;
   if (!ch) return b.empty ? b : { title: b.title, sub: b.sub, items: toItems(b.rows, b.targetFor), notes: b.notes };
-  const rows = [...(b.rows || []).filter((r) => DAY_INDEX[r[0]] < ch.from),
-    ...ch.sessions.map((x) => [x.day, KIND_COLOR[x.kind], x.kind, x.title, x.meta || ""])]
+  const days = changeDays(ch); // { dayIndex: [sessions] }: those days are replaced; [] = rest
+  const base = b.rows || [];
+  const rows = [...base.filter((r) => !(DAY_INDEX[r[0]] in days)),
+    ...Object.entries(days).flatMap(([i, list]) => {
+      const day = DAY_NAMES[i];
+      // An emptied day shows "Rest" only where the plan had something, so a pause is visible.
+      if (!list.length) return base.some((r) => r[0] === day && r[2] !== "Rest") ? [[day, null, "Rest", "Rest"]] : [];
+      return list.map((x) => [day, KIND_COLOR[x.kind], x.kind, x.title, x.meta || ""]);
+    })]
     .sort((x, y) => DAY_INDEX[x[0]] - DAY_INDEX[y[0]]); // stable: keeps a day's order
   return { title: b.title || "Adjusted week", sub: b.empty ? "" : b.sub, items: toItems(rows, b.targetFor),
     notes: b.notes, adjusted: ch.why || "" };
@@ -178,6 +185,66 @@ const txt = (v, max, what) => {
   if (t.length > max || !PLAN_TEXT.test(t)) throw new Error(`plan change: bad ${what}`);
   return t;
 };
+
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const dShift = (d, n) => new Date(Date.parse(d + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+const dIdx = (d) => (new Date(d + "T00:00:00Z").getUTCDay() + 6) % 7;
+const dMon = (d) => dShift(d, -dIdx(d));
+
+/** A stored week change → { dayIndex: [sessions] }. Older ones ({from, sessions by day}) replaced from..Sun. */
+export function changeDays(ch) {
+  if (ch?.days) return ch.days;
+  const out = {};
+  for (let i = ch?.from || 0; i < 7; i++) out[i] = [];
+  for (const x of ch?.sessions || []) (out[DAY_INDEX[x.day]] ||= []).push(x);
+  return out;
+}
+
+/** Any proposal (a date range, or the older {week, from, sessions by day}) → {start, end, why, sessions with date+day}. */
+export function normChange(pc) {
+  if (!pc || !Array.isArray(pc.sessions)) return null;
+  if (pc.start && pc.end) {
+    if (!pc.sessions.every((x) => DATE_RE.test(x?.date || ""))) return null;
+    return { ...pc, sessions: pc.sessions.map((x) => ({ ...x, day: DAY_NAMES[dIdx(x.date)] })) };
+  }
+  if (!DATE_RE.test(pc.week || "")) return null;
+  return { start: dShift(pc.week, pc.from || 0), end: dShift(pc.week, 6), why: pc.why,
+    sessions: pc.sessions.filter((x) => x.day in DAY_INDEX).map((x) => ({ ...x, date: dShift(pc.week, DAY_INDEX[x.day]) })) };
+}
+
+function cleanSession(x) {
+  if (!(x?.kind in KIND_COLOR)) throw new Error("plan change: bad kind");
+  const title = txt(x.kind === "Rest" ? x.title || "Rest" : x.title, 50, "title");
+  if (!title) throw new Error("plan change: no title");
+  return { kind: x.kind, title, meta: txt(x.meta, 40, "note") };
+}
+
+/**
+ * Validates a proposal over a date range (≤ 14 days, from today on; days already past are left as they were) and
+ * splits it per week → [{ week, days: { dayIndex: [sessions] }, why }]. Days in the range with nothing listed are rest.
+ * Throws with a reason.
+ */
+export function splitChange(pc, today) {
+  const c = normChange(pc);
+  if (!c || !DATE_RE.test(c.start) || !DATE_RE.test(c.end) || c.end < c.start) throw new Error("plan change: bad dates");
+  if (c.end < today) throw new Error("plan change: its days have passed");
+  if (c.end > dShift(today, 13)) throw new Error("plan change: more than 2 weeks ahead");
+  if (c.sessions.length > 20) throw new Error("plan change: too many sessions");
+  const start = c.start < today ? today : c.start;
+  const why = txt(c.why, 200, "reason");
+  const weeks = new Map();
+  for (let d = start; d <= c.end; d = dShift(d, 1)) {
+    if (!weeks.has(dMon(d))) weeks.set(dMon(d), {});
+    weeks.get(dMon(d))[dIdx(d)] = [];
+  }
+  for (const x of c.sessions) {
+    if (x.date < start) continue; // already past
+    if (x.date > c.end) throw new Error("plan change: a session is outside its dates");
+    weeks.get(dMon(x.date))[dIdx(x.date)].push(cleanSession(x));
+  }
+  return [...weeks].map(([week, days]) => ({ week, days, why }));
+}
 
 /** Validates a change { from?, sessions: [{day, kind, title, meta?}], why } → cleaned copy, or throws. */
 export function cleanChange(c, from = 0) {

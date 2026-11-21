@@ -1,7 +1,7 @@
 // /api/progress
 //   GET  ?from=YYYY-MM-DD&to=YYYY-MM-DD           -> { rows: [...] }
 //   POST { person, week, item, done, log? }       -> { ok, row? }
-//        done:false removes the tick (and its photo); log:{km,duration,pace,hr,note} saves details.
+//        done:false removes the tick (and its photo; a linked activity is unlinked); log:{km,duration,pace,hr,note} saves details.
 import { DATE, HttpError, handle, json, key } from "../../lib/shared.js";
 
 const COLS = "person, week, item, done_at, km, duration, pace, hr, note, has_photo, updated_at";
@@ -45,10 +45,15 @@ export const onRequestPost = handle(async ({ request, env }) => {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM progress WHERE person=?1 AND week=?2 AND item=?3").bind(person, week, item),
       env.DB.prepare("DELETE FROM photos WHERE person=?1 AND week=?2 AND item=?3").bind(person, week, item),
+      // An activity linked to it stays in My log, unlinked; the session is never matched automatically again.
+      env.DB.prepare("UPDATE activities SET week=NULL, item=NULL, extra=json_remove(extra, '$.autolink') " +
+        "WHERE person=?1 AND week=?2 AND item=?3").bind(person, week, item),
+      env.DB.prepare("INSERT OR IGNORE INTO auto_skip (person, week, item) VALUES (?1, ?2, ?3)").bind(person, week, item),
     ]);
     return json({ ok: true });
   }
 
+  await env.DB.prepare("DELETE FROM auto_skip WHERE person=?1 AND week=?2 AND item=?3").bind(person, week, item).run();
   if (!body.log) {
     await env.DB.prepare(
       "INSERT INTO progress (person, week, item, done_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4) " +

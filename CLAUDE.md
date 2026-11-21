@@ -8,7 +8,8 @@ suggestion per runner. Cloudflare Pages + Functions + D1. See README.md for layo
   is generated (gitignored), `.dev.vars` holds secrets. No health data, names beyond the initials, or personal paths.
 - WGW's Garmin health data (HRV, sleep, body battery, weights) never comes into this repo or onto the site.
   Only `public/wgw.json` (calendar, weekly minutes, a qualitative suggestion) is written here, by WGW's private hook.
-- Keep runners' data separate: one runner's sessions never feed another runner's suggestion.
+- Club: each runner's prompt may include the other runners' recent sessions (`lib/club.js`, quoted as data) for one
+  optional "club" line; the advice itself stays this runner's. WGW appears to others only via public `wgw.json`.
 - Coaching numbers (VDOT, zones, form bands, prehab) are computed in `lib/`; the model only phrases them.
   When a computed value would mislead (e.g. a VDOT from a sub-maximal run), fix the computation, not the prompt.
 - Deploy from the repo root: `npx wrangler pages deploy --branch main --commit-dirty=true`.

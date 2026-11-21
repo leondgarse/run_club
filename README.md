@@ -157,6 +157,30 @@ npm run db:migrate                                            # once: migrations
 npx wrangler d1 execute run-club --remote --file=seed/<file>.sql   # load history sent in chat
 ```
 
+## Sessions done on another day
+
+Saving a run/gym/swim without a session link re-plans the automatic links around it (`lib/match.js`): unticked plan
+sessions of the same type take an activity on the same day, else one done a day late, else a day early (early only
+once that day is over). Tests/races only take an activity whose title or note says test/race. Matched sessions are
+ticked with the activity's numbers and shown on the day they were done ("Planned Thu, done here"); a hand un-tick
+puts the session in `auto_skip` (`migrations/0010_auto_skip.sql`) so it isn't matched again. Calendar and coaching
+numbers count a linked session once. Backfill: `POST /api/activities {person, relink: true, date}`.
+
+## Plan changes over a date range
+
+A proposal is `{start, end, why, sessions: [{date, kind, title, meta}]}`: from today, at most 14 days, may cross into
+next week; dates in the range without a session are rest. `splitChange` (`plans.js`) splits it per week and each week
+stores the days it replaces (`{days: {"5": [], "6": []}}`), so it merges with a change accepted earlier that week.
+Older `{week, from, sessions}` changes still read. The target's set date goes into the prompt, so "till next
+Wednesday" resolves from the day it was written.
+
+## Club line
+
+Each daily prompt gets a CLUB section (`lib/club.js`): the other runners' last 14 days (paces, HR, cadence, titles
+and notes quoted as data) and their computed numbers; WGW only as the minutes/call in public `wgw.json`. Claude may
+write one `club` line (shown as "Club" on the card) when a clubmate is clearly better at what this runner needs.
+WGW's private hook gets the same section from `GET /api/club?person=WGW`.
+
 ## Screenshot reading
 
 **Plan sessions (TJH/SJH)**: the log sheet keeps the quick fields, and "📷 Screenshots → full details in My log"

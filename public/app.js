@@ -1,4 +1,4 @@
-import { PEOPLE, planFor as basePlanFor } from "./plans.js";
+import { PEOPLE, planFor as basePlanFor, normChange } from "./plans.js";
 // Every plan lookup goes through the accepted changes (TJH/WGW, /api/plan).
 const planFor = (p, w) => basePlanFor(p, w, state.planChanges);
 import { t as tr, tKind, localized, applyStatic, setLang, setTheme, currentLang, currentTheme } from "./i18n.js";
@@ -120,24 +120,25 @@ const DAY_LONG = { Mon: "Mon", Tue: "Tue", Wed: "Wed", Thu: "Thu", Fri: "Fri", S
 const proposalOf = (p) => (p === "WGW" ? state.wgw?.suggestion : state.today.get(p)?.suggestion);
 const dismissKey = (p, s) => `planDismiss:${p}:${s.date}`;
 /** The proposal box inside the Today card ("" when there's none, it was dismissed, or its week is over). */
+const dayDate = (d) => `${tr(DAY_LONG[DAYS[(fromIso(d).getDay() + 6) % 7]])} ${+d.slice(5, 7)}.${+d.slice(8)}`;
 function proposalBox(p, s) {
-  const pc = s?.plan_change;
-  if (!pc?.sessions || s.date !== iso(new Date()) || pc.week < thisWeek()) return "";
-  const cur = state.planChanges[`${p}|${pc.week}`];
+  const pc = normChange(s?.plan_change);
+  if (!pc || s.date !== iso(new Date()) || pc.end < iso(new Date())) return "";
+  const cur = state.planChanges[`${p}|${iso(mondayOf(fromIso(pc.start < iso(new Date()) ? iso(new Date()) : pc.start)))}`];
   if (cur?.source_date === s.date) return `<p class="smute sprop-ok">${tr("Plan change accepted ✓")}</p>`;
   if (store.get(dismissKey(p, s))) return "";
-  const when = pc.week === thisWeek() ? tr("this week") : tr("next week");
-  return `<div class="sprop"><b>${tr("Proposed plan change · {w}", { w: when })}</b>
+  const range = pc.start === pc.end ? dayDate(pc.start) : `${dayDate(pc.start)} → ${dayDate(pc.end)}`;
+  return `<div class="sprop"><b>${tr("Proposed plan change · {w}", { w: range })}</b>
     <p>${esc((currentLang() === "zh" && s.zh?.plan_why) || pc.why)}</p>
-    <ul>${pc.sessions.map((x) => `<li><span>${tr(DAY_LONG[x.day])}</span> ${esc(tKind(x.kind))} · ${esc(x.title)}${x.meta ? ` <small>(${esc(x.meta)})</small>` : ""}</li>`).join("")}</ul>
-    <div class="smute">${tr("Days not listed become rest. Earlier days stay as they are.")}</div>
+    <ul>${pc.sessions.map((x) => `<li><span>${dayDate(x.date)}</span> ${esc(tKind(x.kind))} · ${esc(x.title)}${x.meta ? ` <small>(${esc(x.meta)})</small>` : ""}</li>`).join("") || `<li>${tr("Rest")}</li>`}</ul>
+    <div class="smute">${tr("Other days in this range are rest; days outside it don't change.")}</div>
     <div class="sprop-btns"><button class="ghost" data-dismiss="${p}">${tr("Dismiss")}</button><button data-accept="${p}">${tr("Accept")}</button></div></div>`;
 }
 async function acceptProposal(p) {
-  const s = proposalOf(p), pc = s?.plan_change; if (!pc) return;
+  const s = proposalOf(p), pc = normChange(s?.plan_change); if (!pc) return;
   try {
-    const r = await api("/api/plan", { method: "POST", body: JSON.stringify({ person: p, today: iso(new Date()), week: pc.week, change: pc, source: s.date }) });
-    state.planChanges[`${p}|${pc.week}`] = r.change;
+    const r = await api("/api/plan", { method: "POST", body: JSON.stringify({ person: p, today: iso(new Date()), change: pc, source: s.date }) });
+    Object.assign(state.planChanges, r.changes || {});
     toast(tr("Plan updated ✓"));
   } catch (e) { toast(e.message); }
   render();
@@ -288,10 +289,18 @@ function renderPerson(pid) {
       ${km ? `<div class="sub">${tr("{n} km logged", { n: Math.round(km * 10) / 10 })}</div>` : ""}
     </div>`;
 
+  // A session done on another day (its My log activity is linked to it) shows on the day it was done.
+  const doneOn = new Map();
+  for (const a of state.hist.get(pid)?.activities || []) {
+    if (a.week !== state.week || !set.has(a.item)) continue;
+    const di = Math.round((fromIso(a.date) - mon) / 864e5);
+    if (di >= 0 && di <= 6) doneOn.set(a.item, di);
+  }
   const byDay = new Map();
   for (const it of plan.items) {
-    if (!byDay.has(it.dayIndex)) byDay.set(it.dayIndex, []);
-    byDay.get(it.dayIndex).push(it);
+    const di = doneOn.get(it.id) ?? it.dayIndex;
+    if (!byDay.has(di)) byDay.set(di, []);
+    byDay.get(di).push(it);
   }
   for (const [di, items] of [...byDay].sort((a, b) => a[0] - b[0])) {
     const date = addDays(mon, di);
@@ -307,6 +316,7 @@ function renderPerson(pid) {
           <span class="cbar" style="background:${it.color}"></span>
           <span class="body"><div class="kind" style="color:${it.color}">${esc(tKind(it.kind))}${missed ? `<span class="mtag">${tr("Missed")}</span>` : ""}</div>
             <div class="title">${esc(it.title)}</div>${it.meta ? `<div class="meta">${esc(it.meta)}</div>` : ""}
+            ${doneOn.has(it.id) && doneOn.get(it.id) !== it.dayIndex ? `<div class="moved">${tr("Planned {d}, done here", { d: tr(DAYS[it.dayIndex]) })}</div>` : ""}
             ${d ? `<div class="logged">${logged ? esc(logged) : tr("+ add details")}</div>` : ""}</span>
           <span class="box">${CHECK}</span></button>`;
     }
@@ -359,6 +369,7 @@ function renderSuggestion(color) {
     <div class="stitle">${esc(s.headline)}</div>
     ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
     ${s.why ? `<p>${esc(s.why)}</p>` : ""}
+    ${s.club ? `<p class="sclub"><b>${tr("Club")}</b> ${esc(s.club)}</p>` : ""}
     ${s.next ? `<p class="smute">${tr("Tomorrow:")} ${esc(s.next)}</p>` : ""}
     ${proposalBox("WGW", state.wgw.suggestion)}
   </div>`;
@@ -497,6 +508,7 @@ function suggestionCard(s, color, mute) {
     ${s.why ? `<p>${esc(s.why)}</p>` : ""}
     ${s.form ? `<p class="sform"><b>${tr("Form")}</b> ${esc(s.form)}</p>` : ""}
     ${s.science ? `<p class="ssci"><b>${tr("Why it works")}</b> ${esc(s.science)}</p>` : ""}
+    ${s.club ? `<p class="sclub"><b>${tr("Club")}</b> ${esc(s.club)}</p>` : ""}
     ${s.prehab?.length ? `<details class="snum"><summary>${tr("Prehab · 2×/week, ~15 min")}</summary>
       <ul>${s.prehab.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>
       <div class="smute">${tr("From recurring form issues in the logged runs. After easy runs or on rest days; stop if anything hurts.")}</div></details>` : ""}
@@ -527,12 +539,13 @@ function selfDash(p) {
   if (!h?.ready) return null;
   const entries = h.activities.map((a) => ({ date: a.date, type: a.type, min: durMin(a.duration), km: a.type === "run" ? +a.km || 0 : 0 }));
   const have = new Set(entries.map((e) => `${e.date}|${e.type}`));
+  const linked = new Set(h.activities.filter((a) => a.week).map((a) => `${a.week}|${a.item}`));
   for (const r of h.logs) {
     const it = planFor(p, r.week).items?.find((i) => i.id === r.item);
     if (!it) continue;
     const date = iso(addDays(fromIso(r.week), it.dayIndex));
     const type = /strength/i.test(it.kind) ? "gym" : "run";
-    if (have.has(`${date}|${type}`)) continue; // same session also added as an activity
+    if (have.has(`${date}|${type}`) || linked.has(`${r.week}|${r.item}`)) continue; // also in My log (maybe another day)
     const planned = +((it.meta || "").match(/(\d+)\s*min/) || [])[1] || 0;
     entries.push({ date, type, min: r.duration ? durMin(r.duration) : planned, km: type === "run" ? +r.km || 0 : 0 });
   }
@@ -651,7 +664,7 @@ async function saveAct(e) {
       person: act.p, id: act.id, date: $("#aDate").value, type: $("#aType").value, title: $("#aTitle").value.trim(),
       km, duration, pace, hr: $("#aHr").value.trim(), cadence: $("#aCad").value.trim(), note: $("#aNote").value.trim(),
       extra: Object.fromEntries(EXTRA_FIELDS.map(([k]) => [k, $(`#ax_${k}`).value.trim()]).filter(([, v]) => v)),
-      week: act.link?.week || null, item: act.link?.item || null,
+      week: act.link?.week || null, item: act.link?.item || null, today: iso(new Date()),
     }) });
     if (r.row) { state.logs.set(`${act.p}|${r.row.week}|${r.row.item}`, r.row); doneSet(act.p, r.row.week).add(r.row.item); }
     const activity = await syncShots(r.activity);
@@ -660,6 +673,7 @@ async function saveAct(e) {
       .sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.id - a.id));
     state.hist.set(act.p, h);
     dataChanged(act.p);
+    refresh(); // the server may have ticked or un-ticked a plan session it matched
     closeAct();
     render();
     toast(tr("Saved ✓"));
@@ -670,10 +684,11 @@ async function saveAct(e) {
 async function deleteAct() {
   if (!act.id || !confirm(tr("Delete this activity?"))) return;
   try {
-    await api(`/api/activities?person=${act.p}&id=${act.id}`, { method: "DELETE" });
+    await api(`/api/activities?person=${act.p}&id=${act.id}&today=${iso(new Date())}`, { method: "DELETE" });
     const h = state.hist.get(act.p);
     if (h) h.activities = h.activities.filter((a) => a.id !== act.id);
     dataChanged(act.p);
+    refresh(); // the server may have ticked or un-ticked a plan session it matched
     closeAct();
     render();
   } catch (err) { toast(tr("Couldn't delete: {e}", { e: err.message })); }
