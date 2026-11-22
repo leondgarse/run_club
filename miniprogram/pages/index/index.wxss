@@ -170,3 +170,4 @@
 .ctab .tr{display:flex;font-size:12px;border-bottom:1px solid var(--line);padding:2px 0}
 .ctab .tr text{flex:1}
 .ctab .th{color:var(--mute);font-weight:600}
+.rbw{margin-top:8px}

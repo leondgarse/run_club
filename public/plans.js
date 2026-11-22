@@ -166,8 +166,28 @@ export function planFor(person, week, changes) {
       return list.map((x) => [day, KIND_COLOR[x.kind], x.kind, x.title, x.meta || ""]);
     })]
     .sort((x, y) => DAY_INDEX[x[0]] - DAY_INDEX[y[0]]); // stable: keeps a day's order
-  return { title: b.title || "Plan from Claude", sub: b.empty ? "" : b.sub, items: toItems(rows, b.targetFor),
-    notes: b.notes, adjusted: ch.why || "" };
+  // A rebuilt week brings its own paces: the Paces table and the pace/HR targets follow them.
+  const own = ch.paces ? rebuiltPaces(ch, b.notes) : null;
+  return { title: b.title || "Plan from Claude", sub: b.empty ? "" : b.sub, items: toItems(rows, own?.targetFor || b.targetFor),
+    notes: own?.notes || b.notes, adjusted: ch.why || "" };
+}
+
+/** Paces table + targets from a rebuild's computed paces ({E: "6:02–6:52", M, T, I, R, G}). */
+function rebuiltPaces(ch, notes) {
+  const p = ch.paces, s = (v) => { const m = String(v || "").match(/(\d+):(\d{2})/); return m ? +m[1] * 60 + +m[2] : null; };
+  const mm = (x) => `${Math.floor(x / 60)}:${String(Math.round(x % 60)).padStart(2, "0")}`;
+  const band = (v, d = 5) => (s(v) ? [mm(s(v) - d), mm(s(v) + d)] : null);
+  const [e0, e1] = String(p.E || "").split("–");
+  const hr = ch.easyCeil ? [null, ch.easyCeil] : undefined;
+  const targets = { Easy: { pace: [e0, e1], hr }, Long: { pace: [e0, e1], hr }, "Long · Easy": { pace: [e0, e1], hr },
+    Threshold: { pace: band(p.T) }, Tempo: { pace: band(p.T) }, Interval: { pace: band(p.I) }, Repetition: { pace: band(p.R) },
+    "Goal pace": { pace: band(p.G) } };
+  const rows = [
+    ["E", C.easy, "Easy", p.E, ch.easyCeil ? `HR ≤ ${ch.easyCeil}` : "/km"], ["M", C.marathon, "Marathon", `~${p.M}`, "/km"],
+    ["T", C.threshold, "Threshold", `~${p.T}`, "/km"], ["I", C.interval, "Interval", `~${p.I}`, "/km"],
+    ["R", C.rep, "Repetition", `~${p.R}`, "/km"], ["G", C.goal, "Goal 5K", p.G, ch.goal5k ? `5K ${ch.goal5k}` : "/km"],
+  ];
+  return { notes: { ...(notes || { text: [] }), title: "Paces", rows }, targetFor: (it) => (/@ ?[MGR]/.test(it.title) && /long/i.test(it.kind) ? null : targets[it.kind] || null) };
 }
 
 // ─── Plan changes (proposed by Claude in the daily suggestion, accepted by the runner) ──────────────────
@@ -229,12 +249,12 @@ function cleanSession(x) {
  * splits it per week → [{ week, days: { dayIndex: [sessions] }, why }]. Days in the range with nothing listed are rest.
  * Throws with a reason.
  */
-export function splitChange(pc, today) {
+export function splitChange(pc, today, maxDays = 14) {
   const c = normChange(pc);
   if (!c || !DATE_RE.test(c.start) || !DATE_RE.test(c.end) || c.end < c.start) throw new Error("plan change: bad dates");
   if (c.end < today) throw new Error("plan change: its days have passed");
-  if (c.end > dShift(today, 13)) throw new Error("plan change: more than 2 weeks ahead");
-  if (c.sessions.length > 20) throw new Error("plan change: too many sessions");
+  if (c.end > dShift(today, maxDays - 1)) throw new Error(`plan change: more than ${maxDays} days ahead`);
+  if (c.sessions.length > Math.max(20, maxDays)) throw new Error("plan change: too many sessions");
   const start = c.start < today ? today : c.start;
   const why = txt(c.why, 200, "reason");
   const weeks = new Map();
@@ -247,7 +267,9 @@ export function splitChange(pc, today) {
     if (x.date > c.end) throw new Error("plan change: a session is outside its dates");
     weeks.get(dMon(x.date))[dIdx(x.date)].push(cleanSession(x));
   }
-  return [...weeks].map(([week, days]) => ({ week, days, why }));
+  // A rebuild carries a focus per week, its paces and goal (shown in the Paces table, used for the HR/pace checks).
+  const extra = pc.rebuild ? { paces: pc.paces, goal5k: pc.goal5k, easyCeil: pc.easyCeil } : {};
+  return [...weeks].map(([week, days]) => ({ week, days, why: pc.focus?.[week] ? txt(pc.focus[week], 120, "focus") : why, ...extra }));
 }
 
 /** Validates a change { from?, sessions: [{day, kind, title, meta?}], why } → cleaned copy, or throws. */

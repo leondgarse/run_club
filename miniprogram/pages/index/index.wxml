@@ -143,6 +143,20 @@
       </block>
     </view>
 
+    <view wx:if="{{p.rebuild}}" class="sugg" style="--c:{{p.rebuild.color}}">
+      <view class="shead"><view>{{p.rebuild.head}}</view><text class="call">{{p.rebuild.goal}}</text></view>
+      <view class="p">{{p.rebuild.why}}</view>
+      <view class="p sform">{{p.rebuild.paces}}</view>
+      <view wx:for="{{p.rebuild.weeks}}" wx:for-item="w" wx:key="k" class="rbw">
+        <view class="b small">{{w.head}}</view>
+        <view wx:for="{{w.sessions}}" wx:key="k" class="li"><text class="b">{{item.day}}</text> {{item.text}}<text wx:if="{{item.meta}}" class="smute"> ({{item.meta}})</text></view>
+      </view>
+      <view class="smute small">{{p.rebuild.note}}</view>
+      <view class="sprop-btns">
+        <button class="ghost" data-p="{{p.id}}" bindtap="rebuildDismiss">{{p.rebuild.dismiss}}</button>
+        <button data-p="{{p.id}}" bindtap="rebuildAccept">{{p.rebuild.accept}}</button>
+      </view>
+    </view>
     <block wx:if="{{p.card}}"><template is="card" data="{{c: p.card, L: L, pid: p.id}}" /></block>
 
     <block wx:if="{{p.log}}">

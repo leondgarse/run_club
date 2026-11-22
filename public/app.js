@@ -113,7 +113,9 @@ const refresh = () => (loadGoals(), loadPlanChanges(), load(...historyRange()));
 async function loadPlanChanges() {
   try {
     const from = iso(addDays(mondayOf(new Date()), -7 * 26)), to = iso(addDays(mondayOf(new Date()), 7));
-    state.planChanges = (await api(`/api/plan?from=${from}&to=${to}`)).changes || {};
+    const d = await api(`/api/plan?from=${from}&to=${to}`);
+    state.planChanges = d.changes || {};
+    state.proposals = d.proposals || {}; // waiting plan rebuilds (lib/rebuild.js)
   } catch { return; }
   if (!sheet.item && !act.open && !goalSheet.p) render();
 }
@@ -142,6 +144,35 @@ function draftWeek(p, color) {
   const box = pc && pc.start <= iso(addDays(fromIso(state.week), 6)) && pc.end >= state.week ? proposalBox(p, s) : "";
   return `<div class="sugg" style="--c:${color}"><div class="shead"><span>${tr("Proposed week")}</span></div>
     ${box || `<p class="smute">${tr("When a week has no plan yet, Claude drafts one in the 9:00 suggestion. It shows here to accept.")}</p>`}</div>`;
+}
+/** A rebuilt plan waiting for the runner (Claude drafted it within computed limits; /api/rebuild). */
+function rebuildBox(p, color) {
+  const pr = state.proposals?.[p];
+  if (!pr) return "";
+  const weeks = [];
+  for (let w = pr.start; w <= pr.end; w = iso(addDays(fromIso(w), 7))) weeks.push(w);
+  const pz = pr.paces;
+  return `<div class="sugg rebuild" style="--c:${color}"><div class="shead"><span>${tr("Your plan, rebuilt")}</span><b class="call">${tr("5K goal {t}", { t: pr.goal5k })}</b></div>
+    <p>${esc(pr.why)}</p>
+    <p class="sform"><b>${tr("Paces")}</b> E ${esc(pz.E)} · T ${esc(pz.T)} · I ${esc(pz.I)} · R ${esc(pz.R)} · G ${esc(pz.G)} /km</p>
+    ${weeks.map((w, i) => `<details class="snum"${i === 0 ? " open" : ""}><summary>${tr("Week of {d}", { d: md(fromIso(w)) })}${pr.focus?.[w] ? ` · ${esc(pr.focus[w])}` : ""}</summary>
+      <ul>${pr.sessions.filter((x) => x.date >= w && x.date <= iso(addDays(fromIso(w), 6))).map((x) =>
+        `<li><b>${dayDate(x.date)}</b> ${esc(tKind(x.kind))} · ${esc(x.title)}${x.meta ? ` <small>(${esc(x.meta)})</small>` : ""}</li>`).join("")}</ul></details>`).join("")}
+    <div class="smute">${tr("Replaces these weeks of the plan; days without a session are rest. Paces are computed from your own runs.")}</div>
+    <div class="sprop-btns"><button class="ghost" data-rbdismiss="${p}">${tr("Dismiss")}</button><button data-rbaccept="${p}">${tr("Accept")}</button></div></div>`;
+}
+async function rebuildAction(p, accept) {
+  const pr = state.proposals?.[p]; if (!pr) return;
+  if (!accept && !confirm(tr("Dismiss the rebuilt plan?"))) return;
+  try {
+    if (accept) {
+      const r = await api("/api/plan", { method: "POST", body: JSON.stringify({ person: p, today: iso(new Date()), change: pr, source: iso(new Date()) }) });
+      Object.assign(state.planChanges, r.changes || {});
+      toast(tr("Plan updated ✓"));
+    } else await api(`/api/rebuild?person=${p}`, { method: "DELETE" });
+    delete state.proposals[p];
+  } catch (e) { toast(e.message); }
+  render();
 }
 async function acceptProposal(p) {
   const s = proposalOf(p), pc = normChange(s?.plan_change); if (!pc) return;
@@ -536,7 +567,7 @@ function renderToday(p, color) {
   if (t?.suggestion && t.suggestion.date === today) {
     const note = t.newer && !t.refresh?.pending
       ? `<p class="smute">${tr(t.refresh?.left ? "Sessions or target changed since this was written." : "New sessions logged since this was written. They're in tomorrow's 9:00 suggestion.")}</p>` : "";
-    return suggestionCard(t.suggestion, color).replace(/<\/div>\s*$/, proposalBox(p, t.suggestion) + note + refreshLine(p, t) + "</div>");
+    return rebuildBox(p, color) + suggestionCard(t.suggestion, color).replace(/<\/div>\s*$/, proposalBox(p, t.suggestion) + note + refreshLine(p, t) + "</div>");
   }
   const msg = !t || t.loading ? tr("Loading today's suggestion…")
     : t.error ? tr("Couldn't load the suggestion: {e}", { e: t.error })
@@ -1180,6 +1211,8 @@ $("#main").addEventListener("click", async (e) => {
   if (e.target.closest("[data-addact]")) return openAct(state.tab);
   const ac = e.target.closest("[data-accept]");
   if (ac) { ac.disabled = true; return acceptProposal(ac.dataset.accept); }
+  const rb = e.target.closest("[data-rbaccept],[data-rbdismiss]");
+  if (rb) { rb.disabled = true; return rebuildAction(rb.dataset.rbaccept || rb.dataset.rbdismiss, !!rb.dataset.rbaccept); }
   const ds = e.target.closest("[data-dismiss]");
   if (ds) { const s = proposalOf(ds.dataset.dismiss); if (s) store.set(dismissKey(ds.dataset.dismiss, s), "1"); return render(); }
   const rv = e.target.closest("[data-revert]");

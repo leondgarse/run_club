@@ -47,7 +47,9 @@ async function load(from, to) {
 async function loadPlanChanges() {
   try {
     const from = iso(addDays(mondayOf(new Date()), -7 * 26)), to = iso(addDays(mondayOf(new Date()), 7));
-    S.planChanges = (await api(`/api/plan?from=${from}&to=${to}`)).changes || {};
+    const d = await api(`/api/plan?from=${from}&to=${to}`);
+    S.planChanges = d.changes || {};
+    S.proposals = d.proposals || {}; // waiting plan rebuilds
     render();
   } catch {}
 }
@@ -353,6 +355,21 @@ function chartsVM(p) {
 }
 
 const tableOpen = {}; // chart table views opened ("SJHeff" -> true)
+/** A rebuilt plan waiting for the runner (/api/rebuild). */
+function rebuildVM(p, color) {
+  const pr = S.proposals[p], weeks = [];
+  for (let w = pr.start; w <= pr.end; w = iso(addDays(fromIso(w), 7))) {
+    const end = iso(addDays(fromIso(w), 6));
+    weeks.push({ k: w, head: tr("Week of {d}", { d: md(fromIso(w)) }) + (pr.focus?.[w] ? ` · ${pr.focus[w]}` : ""),
+      sessions: pr.sessions.filter((x) => x.date >= w && x.date <= end).map((x, i) => ({ k: i, day: dayDate(x.date), text: `${tKind(x.kind)} · ${x.title}`, meta: x.meta || "" })) });
+  }
+  const z = pr.paces;
+  return { color, head: tr("Your plan, rebuilt"), goal: tr("5K goal {t}", { t: pr.goal5k }), why: pr.why,
+    paces: `${tr("Paces")}: E ${z.E} · T ${z.T} · I ${z.I} · R ${z.R} · G ${z.G} /km`, weeks,
+    note: tr("Replaces these weeks of the plan; days without a session are rest. Paces are computed from your own runs."),
+    dismiss: tr("Dismiss"), accept: tr("Accept") };
+}
+
 function selfLogVM(p) {
   const h = S.hist.get(p);
   const acts = h?.activities || [];
@@ -422,6 +439,7 @@ function personVM(pid) {
     }
   }
   if (isCur) vm.card = pid === "WGW" ? wgwCard(p.color) : todayCard(pid, p.color);
+  if (isCur && S.proposals?.[pid]) vm.rebuild = rebuildVM(pid, p.color);
   if (vm.card) vm.card.numOpen = store.get("numOpen") !== "0";
   if (pid === "WGW") vm.dash = S.wgw ? dashVM(S.wgw, { splits: true, note: tr("From Garmin, updated {t}.", { t: S.wgw.generated }) }) : null;
   else vm.log = selfLogVM(pid);
@@ -588,6 +606,23 @@ Page({
   toggleNumbers() { store.set("numOpen", store.get("numOpen") === "0" ? "1" : "0"); render(); },
   toggleTable(e) { const k = e.currentTarget.dataset.k; tableOpen[k] = !tableOpen[k]; render(); },
 
+  async rebuildAccept(e) {
+    const p = e.currentTarget.dataset.p, pr = S.proposals?.[p]; if (!pr) return;
+    try {
+      const r = await api("/api/plan", { method: "POST", data: { person: p, today: todayIso(), change: pr, source: todayIso() } });
+      Object.assign(S.planChanges, r.changes || {}); delete S.proposals[p];
+      toast(tr("Plan updated ✓"));
+    } catch (err) { toast(err.message); }
+    render();
+  },
+  rebuildDismiss(e) {
+    const p = e.currentTarget.dataset.p;
+    wx.showModal({ content: tr("Dismiss the rebuilt plan?"), success: async ({ confirm }) => {
+      if (!confirm) return;
+      try { await api(`/api/rebuild?person=${p}`, { method: "DELETE" }); delete S.proposals[p]; } catch (err) { toast(err.message); }
+      render();
+    } });
+  },
   async accept(e) {
     const p = e.currentTarget.dataset.p;
     const s = proposalOf(p), pc = normChange(s?.plan_change); if (!pc) return;

@@ -1,5 +1,6 @@
 // Plan changes for TJH/WGW: Claude proposes one in the daily suggestion (`plan_change`), the runner accepts it here.
-//   GET  /api/plan?from=&to=                              -> { changes: { "TJH|2026-11-16": {days, why, source_date} } }
+//   GET  /api/plan?from=&to=                              -> { changes: { "TJH|2026-11-16": {days, why, source_date} },
+//                                                              proposals: { TJH: {rebuild...} } }  (waiting plan rebuilds)
 //   POST /api/plan { person, today, change, source }      -> { changes: { "WGW|2026-11-16": {...}, "WGW|2026-11-23": {...} } }
 //        accept: change = {start, end, why, sessions: [{date, kind, title, meta}]} (or the older {week, from, ...});
 //        re-validated and split per week by splitChange (public/plans.js). Each week stores the days it replaces, so a
@@ -15,7 +16,11 @@ export const onRequestGet = handle(async ({ request, env }) => {
     .bind(from, to).all();
   const changes = {};
   for (const r of results) try { changes[`${r.person}|${r.week}`] = { ...JSON.parse(r.data), source_date: r.source_date }; } catch {}
-  return json({ changes });
+  const today = new Date().toISOString().slice(0, 10), proposals = {};
+  for (const r of (await env.DB.prepare("SELECT person, data FROM plan_proposals").all()).results) {
+    try { const pr = JSON.parse(r.data); if (pr.end >= today) proposals[r.person] = pr; } catch {}
+  }
+  return json({ changes, proposals });
 });
 
 export const onRequestPost = handle(async ({ request, env }) => {
@@ -29,7 +34,8 @@ export const onRequestPost = handle(async ({ request, env }) => {
   const today = b.today;
   if (!DATE.test(today || "") || Math.abs(Date.parse(today + "T12:00:00Z") - Date.now()) > 36 * 3600e3) throw new HttpError(400, "bad date");
   let parts;
-  try { parts = splitChange(b.change, today); } catch (e) {
+  // A rebuild (lib/rebuild.js) covers the rest of the plan; a daily proposal at most 2 weeks.
+  try { parts = splitChange(b.change, today, b.change?.rebuild ? 70 : 14); } catch (e) {
     throw new HttpError(400, /passed/.test(e.message) ? "This proposal is out of date (its days have passed)" : e.message);
   }
   if (FILL_ONLY.has(b.person) && parts.some((x) => !weekIsEmpty(b.person, x.week))) {
@@ -42,13 +48,15 @@ export const onRequestPost = handle(async ({ request, env }) => {
   const old = Object.fromEntries(results.map((r) => { try { return [r.week, JSON.parse(r.data)]; } catch { return [r.week, null]; } }));
   const changes = {}, stmts = [];
   for (const { week, days, why } of parts) {
-    const data = { days: { ...(old[week] ? changeDays(old[week]) : {}), ...days }, why };
+    const { paces, goal5k, easyCeil } = parts.find((x) => x.week === week);
+    const data = { days: { ...(old[week] ? changeDays(old[week]) : {}), ...days }, why, ...(paces ? { paces, goal5k, easyCeil } : {}) };
     changes[`${b.person}|${week}`] = { ...data, source_date: source };
     stmts.push(env.DB.prepare(
       "INSERT INTO plan_changes (person, week, data, source_date, accepted_at) VALUES (?1, ?2, ?3, ?4, ?5) " +
       "ON CONFLICT(person, week) DO UPDATE SET data=?3, source_date=?4, accepted_at=?5",
     ).bind(b.person, week, JSON.stringify(data), source, now));
   }
+  if (b.change?.rebuild) stmts.push(env.DB.prepare("DELETE FROM plan_proposals WHERE person=?1").bind(b.person));
   await env.DB.batch(stmts);
   return json({ changes });
 });

@@ -195,6 +195,17 @@ One series each in the runner's colour, reference lines muted, hover tooltips an
 SJH: when next week has no plan, the daily suggestion drafts one (`plan_change`, fill-only: `FILL_ONLY` in
 `plans.js`; the API refuses it for a week that has a plan); it shows on that week's page to accept.
 
+## Plan rebuild (TJH)
+
+`python3 -I scripts/plan_rebuild.py TJH` has Claude rewrite the rest of the plan around the runner (`lib/rebuild.js`):
+code sets the limits (paces from the VDOT of their best actual run, easy pace from their HR but never faster than M;
+a realistic 5K at the end of the plan from the weeks left; weekly km from their last weeks, ≤ ~10% a week; the run
+days of their most recent weeks), Claude arranges the weeks within them, and `POST /api/rebuild` checks the draft
+(kinds, dates, no quality pace faster than theirs, weekly km) and stores it in `plan_proposals`
+(`migrations/0011_plan_proposals.sql`); a refused draft goes back to Claude with the reason (3 tries). The proposal
+waits on their Today card (Accept / Dismiss); Accept stores it per week like any plan change, with its paces and goal,
+so the Paces table and the pace/HR checks follow it. Run it again after a real 5K test to re-fit.
+
 ## Screenshot reading
 
 **Plan sessions (TJH/SJH)**: the log sheet keeps the quick fields, and "📷 Screenshots → full details in My log"
