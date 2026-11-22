@@ -1,4 +1,5 @@
-import { PEOPLE, planFor as basePlanFor, normChange } from "./plans.js";
+import { PEOPLE, planFor as basePlanFor, normChange, weekDays } from "./plans.js";
+import { chartData, mmss } from "./charts.js";
 // Every plan lookup goes through the accepted changes (TJH/WGW, /api/plan).
 const planFor = (p, w) => basePlanFor(p, w, state.planChanges);
 import { t as tr, tKind, localized, applyStatic, setLang, setTheme, currentLang, currentTheme } from "./i18n.js";
@@ -133,6 +134,14 @@ function proposalBox(p, s) {
     <ul>${pc.sessions.map((x) => `<li><span>${dayDate(x.date)}</span> ${esc(tKind(x.kind))} · ${esc(x.title)}${x.meta ? ` <small>(${esc(x.meta)})</small>` : ""}</li>`).join("") || `<li>${tr("Rest")}</li>`}</ul>
     <div class="smute">${tr("Other days in this range are rest; days outside it don't change.")}</div>
     <div class="sprop-btns"><button class="ghost" data-dismiss="${p}">${tr("Dismiss")}</button><button data-accept="${p}">${tr("Accept")}</button></div></div>`;
+}
+/** An empty future week (SJH): today's suggestion may carry Claude's draft for it. */
+function draftWeek(p, color) {
+  todayOf(p); // loads today's suggestion if needed
+  const s = state.today.get(p)?.suggestion, pc = normChange(s?.plan_change);
+  const box = pc && pc.start <= iso(addDays(fromIso(state.week), 6)) && pc.end >= state.week ? proposalBox(p, s) : "";
+  return `<div class="sugg" style="--c:${color}"><div class="shead"><span>${tr("Proposed week")}</span></div>
+    ${box || `<p class="smute">${tr("When a week has no plan yet, Claude drafts one in the 9:00 suggestion. It shows here to accept.")}</p>`}</div>`;
 }
 async function acceptProposal(p) {
   const s = proposalOf(p), pc = normChange(s?.plan_change); if (!pc) return;
@@ -273,6 +282,7 @@ function renderPerson(pid) {
     const plan = planFor(pid, state.week);
     let html = `<div class="hero" style="--c:${p.color}"><h1>${esc(pid)}</h1><div class="sub">${esc(p.blurb)}</div>${goalLine(pid)}</div>
       <div class="empty">${esc(tr(plan.empty))}</div>`;
+    if (pid === "SJH" && state.week > thisWeek()) html += draftWeek(pid, p.color);
     if (pid !== "WGW") html += (state.week === thisWeek() ? renderToday(pid, p.color) : "") + renderSelfLog(pid, p.color);
     return html;
   }
@@ -566,7 +576,7 @@ function selfDash(p) {
 }
 
 let showAllActs = null;
-function renderSelfLog(p) {
+function renderSelfLog(p, color) {
   queueMicrotask(() => loadHist(p)); // no-op while fresh
   const h = state.hist.get(p);
   const acts = h?.activities || [];
@@ -580,7 +590,102 @@ function renderSelfLog(p) {
     ${acts.length > 5 ? `<button class="more" data-moreacts>${showAllActs === p ? tr("Show fewer") : tr("Show all {n}", { n: acts.length })}</button>` : ""}</div>`;
   const g = selfDash(p);
   if (g) html += renderDash(g, { note: tr("From what's logged here: ticked plan sessions plus added activities.") });
+  if (h?.ready) html += renderCharts(p, color);
   return html;
+}
+
+// ── Charts (TJH/SJH): aerobic efficiency, pace vs HR, the goal. Data from public/charts.js ──
+/** The runner's runs, each once: My log runs plus ticked sessions with details that aren't in My log. */
+function runsOf(p) {
+  const h = state.hist.get(p);
+  if (!h) return [];
+  const runs = h.activities.filter((a) => a.type === "run");
+  const have = new Set(runs.map((a) => a.date)), linked = new Set(runs.filter((a) => a.week).map((a) => `${a.week}|${a.item}`));
+  for (const r of h.logs) {
+    const it = planFor(p, r.week).items?.find((i) => i.id === r.item);
+    if (!it || /strength/i.test(it.kind) || !r.km || !r.duration || linked.has(`${r.week}|${r.item}`)) continue;
+    const date = iso(addDays(fromIso(r.week), it.dayIndex));
+    if (!have.has(date)) runs.push({ date, km: r.km, duration: r.duration, hr: r.hr, title: it.title });
+  }
+  return runs;
+}
+const md2 = (d) => `${+d.slice(5, 7)}-${+d.slice(8)}`;
+const dayN = (d) => Date.parse(d + "T00:00:00Z") / 864e5;
+// One SVG plot frame: 320×150 user units, scales to the card width. y ticks on the left, light grid.
+function frame(x0, x1, y0, y1, { invert = false, yFmt = (v) => v, yTicks = 3 } = {}) {
+  const W = 320, H = 150, L = 38, R = 8, T = 10, B = 22;
+  const sx = (v) => L + ((v - x0) / (x1 - x0 || 1)) * (W - L - R);
+  const sy = (v) => { const f = (v - y0) / (y1 - y0 || 1); return invert ? T + f * (H - T - B) : H - B - f * (H - T - B); };
+  let grid = "";
+  for (let i = 0; i <= yTicks - 1; i++) {
+    const v = y0 + ((y1 - y0) * i) / (yTicks - 1), y = sy(v);
+    grid += `<line class="cg" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ct" x="${L - 5}" y="${y + 3}" text-anchor="end">${yFmt(v)}</text>`;
+  }
+  return { W, H, L, R, T, B, sx, sy, grid };
+}
+const dot = (x, y, tip) => `<g class="cd"><circle class="chit" cx="${x}" cy="${y}" r="10"/><circle class="cdot" cx="${x}" cy="${y}" r="4"/><title>${esc(tip)}</title></g>`;
+const chartCard = (title, sub, svg, rows, head) => `<div class="chart"><div class="chh"><b>${title}</b><span>${sub}</span></div>
+  <svg viewBox="0 0 320 150" role="img" aria-label="${esc(title)}">${svg}</svg>
+  <details class="ctab"><summary>${tr("Table")}</summary><table><tr>${head.map((x) => `<th>${x}</th>`).join("")}</tr>
+    ${rows.map((r) => `<tr>${r.map((x) => `<td>${esc(String(x))}</td>`).join("")}</tr>`).join("")}</table></details></div>`;
+
+function renderCharts(p, color) {
+  const today = iso(new Date());
+  const c = chartData(runsOf(p), today, state.goals[p] || null);
+  let out = "";
+  if (c.eff) {
+    const pts = c.eff.points, xs = pts.map((q) => dayN(q.date)), vs = pts.map((q) => q.v);
+    const lo = Math.floor((Math.min(...vs) - 0.05) * 20) / 20, hi = Math.ceil((Math.max(...vs) + 0.05) * 20) / 20;
+    const f = frame(Math.min(...xs), Math.max(...xs), lo, hi, { yFmt: (v) => v.toFixed(2) });
+    const line = pts.map((q, i) => `${i ? "L" : "M"}${f.sx(dayN(q.date)).toFixed(1)},${f.sy(q.v).toFixed(1)}`).join("");
+    const tr2 = c.eff.trend ? `<line class="ctrend" x1="${f.sx(xs[0])}" y1="${f.sy(c.eff.trend.from)}" x2="${f.sx(xs[xs.length - 1])}" y2="${f.sy(c.eff.trend.to)}"/>` : "";
+    const svg = f.grid + tr2 + `<path class="cline" d="${line}"/>` +
+      pts.map((q) => dot(f.sx(dayN(q.date)), f.sy(q.v), `${md2(q.date)} · ${q.v} m/beat · ${q.pace}/km · HR ${q.hr} · ${q.km} km`)).join("") +
+      `<text class="ct" x="${f.L}" y="${f.H - 6}">${md2(pts[0].date)}</text><text class="ct" x="${f.W - f.R}" y="${f.H - 6}" text-anchor="end">${md2(pts[pts.length - 1].date)}</text>`;
+    const t = c.eff.trend ? ` ${tr("Trend {v} per 4 weeks.", { v: (c.eff.trend.per4w >= 0 ? "+" : "") + c.eff.trend.per4w.toFixed(2) })}` : "";
+    out += chartCard(tr("Aerobic efficiency · easy runs"), tr("Metres per heartbeat on runs at HR ≤ {n}. Higher = fitter.", { n: c.eff.ceil }) + t, svg,
+      pts.map((q) => [md2(q.date), q.v, q.pace, q.hr, q.km]), [tr("Date"), "m/beat", tr("Pace"), "HR", "km"]);
+  }
+  if (c.scatter) {
+    const pts = c.scatter.points, hrs = pts.map((q) => q.hr), ps = pts.map((q) => q.pace);
+    const x0 = Math.min(...hrs, c.scatter.ceil || 999) - 5, x1 = Math.max(...hrs, c.scatter.ceil || 0) + 5;
+    const y0 = Math.floor(Math.min(...ps) / 30) * 30, y1 = Math.ceil(Math.max(...ps) / 30) * 30;
+    const f = frame(x0, x1, y0, y1, { invert: true, yFmt: (v) => mmss(v) });
+    const ceil = c.scatter.ceil ? `<line class="cref" x1="${f.sx(c.scatter.ceil)}" x2="${f.sx(c.scatter.ceil)}" y1="${f.T}" y2="${f.H - f.B}"/>
+      <text class="ct cl" x="${f.sx(c.scatter.ceil) - 4}" y="${f.T + 9}" text-anchor="end">${tr("easy ≤ {n}", { n: c.scatter.ceil })}</text>` : "";
+    const svg = f.grid + ceil + pts.map((q) => dot(f.sx(q.hr), f.sy(q.pace), `${md2(q.date)} · ${q.paceText}/km · HR ${q.hr} · ${q.km} km`)).join("") +
+      `<text class="ct" x="${f.L}" y="${f.H - 6}">HR ${Math.round(x0)}</text><text class="ct" x="${f.W - f.R}" y="${f.H - 6}" text-anchor="end">HR ${Math.round(x1)}</text>`;
+    out += chartCard(tr("Pace vs heart rate"), tr("Every run, last 120 days. Faster pace is higher; dots right of the line weren't easy."), svg,
+      pts.map((q) => [md2(q.date), q.paceText, q.hr, q.km]), [tr("Date"), tr("Pace"), "HR", "km"]);
+  }
+  if (c.goal?.kind === "long") {
+    const g = c.goal, step = Math.max(g.target, ...g.bars.map((b) => b.km)) > 30 ? 10 : 5;
+    const top = Math.ceil((Math.max(g.target, ...g.bars.map((b) => b.km)) + 1) / step) * step;
+    const f = frame(0, g.bars.length, 0, top, { yFmt: (v) => `${Math.round(v)}`, yTicks: top / step + 1 });
+    const bw = (f.W - f.L - f.R) / g.bars.length;
+    const bars = g.bars.map((b, i) => {
+      if (!b.km) return "";
+      const x = f.sx(i) + 1, y = f.sy(b.km), h = f.sy(0) - y, w = bw - 2, r = Math.min(4, h, w / 2);
+      return `<g class="cd"><path class="cbar" d="M${x},${f.sy(0)}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${f.sy(0)}Z"/><title>${tr("Week of {d}", { d: md2(b.week) })} · ${b.km} km</title></g>`;
+    }).join("");
+    const ty = f.sy(g.target);
+    const svg = f.grid + bars + `<line class="cref" x1="${f.L}" x2="${f.W - f.R}" y1="${ty}" y2="${ty}"/>
+      <text class="ct cl" x="${f.L + 3}" y="${ty - 4}">${g.target} km${g.date ? ` · ${md2(g.date)}` : ""}</text>
+      <text class="ct" x="${f.L}" y="${f.H - 6}">${md2(g.bars[0].week)}</text><text class="ct" x="${f.W - f.R}" y="${f.H - 6}" text-anchor="end">${tr("this week")}</text>`;
+    out += chartCard(tr("Long run toward the race"), tr("Longest run each week vs the race distance."), svg,
+      g.bars.map((b) => [md2(b.week), b.km || "—"]), [tr("Week"), "km"]);
+  } else if (c.goal?.kind === "time") {
+    const g = c.goal, xs = g.points.map((q) => dayN(q.date)), ts = g.points.map((q) => q.t).concat(g.target ? [g.target] : []);
+    const y0 = Math.floor(Math.min(...ts) / 60) * 60 - 60, y1 = Math.ceil(Math.max(...ts) / 60) * 60 + 60;
+    const f = frame(Math.min(...xs) - 1, Math.max(...xs) + 1, y0, y1, { invert: true, yFmt: (v) => mmss(v) });
+    const gl = g.target ? `<line class="cref" x1="${f.L}" x2="${f.W - f.R}" y1="${f.sy(g.target)}" y2="${f.sy(g.target)}"/>
+      <text class="ct cl" x="${f.L + 3}" y="${f.sy(g.target) - 4}">${tr("goal {t}", { t: mmss(g.target) })}</text>` : "";
+    const svg = f.grid + gl + g.points.map((q) => dot(f.sx(dayN(q.date)), f.sy(q.t), `${md2(q.date)} · ${q.time} for ${g.km} km (${q.km} km run)`)).join("") +
+      `<text class="ct" x="${f.L}" y="${f.H - 6}">${md2(g.points[0].date)}</text><text class="ct" x="${f.W - f.R}" y="${f.H - 6}" text-anchor="end">${md2(g.points[g.points.length - 1].date)}</text>`;
+    out += chartCard(tr("{k} km times", { k: g.km }), tr("Runs of about {k} km, timed over {k} km. Faster is higher.", { k: g.km }), svg,
+      g.points.map((q) => [md2(q.date), q.time, q.km]), [tr("Date"), tr("Time"), "km"]);
+  }
+  return out ? `<div class="section">${tr("Charts")}</div><div class="charts" style="--c:${color}">${out}</div>` : "";
 }
 
 // Additional fields (stored in activities.extra; the server validates the same keys).
@@ -802,26 +907,41 @@ function todayOf(pid) {
   return t?.suggestion?.date === iso(new Date()) ? t.suggestion : null;
 }
 
+// All tab: the 7 days of a week per runner, planned sessions (status) + training beyond the plan.
+const wgwActs = () => Object.entries(state.wgw?.calendar || {}).flatMap(([d, c]) => [
+  ...(c.gym ? [{ id: `${d}|gym`, date: d, type: "gym" }] : []), ...(c.cardio || []).map((t) => ({ id: `${d}|${t}`, date: d, type: t }))]);
+function boardWeek(pid, w) {
+  if (planFor(pid, w).empty) return null;
+  const acts = pid === "WGW" ? wgwActs() : state.hist.get(pid)?.activities || [];
+  // WGW doesn't tick on the site: their sessions count as done from the Garmin calendar (same matching as the server).
+  return weekDays(pid, w, doneSet(pid, w), acts, iso(new Date()), state.planChanges, pid === "WGW");
+}
+const typeColor = (t) => (t === "gym" ? WGW_COLORS.pull : WGW_COLORS[t] || WGW_COLORS.other);
+function weekStrip(b) {
+  const today = iso(new Date());
+  return `<div class="wk7">${b.days.map((d) => `<div class="wd${d.date === today ? " today" : ""}"><span>${tr(d.name)}</span>
+    ${d.planned.map((x) => `<i class="wp ${x.status}" title="${esc(x.title)}${x.moved ? " ↷" : ""}"></i>`).join("")}
+    ${d.extra.map((t) => `<i class="wx" style="--k:${typeColor(t)}" title="${esc(tr(t))}">+</i>`).join("")}</div>`).join("")}</div>
+    <div class="wsum">${b.active === 1 ? tr("1 day trained") : tr("{n} days trained", { n: b.active })}${b.extra ? ` · ${tr("{n} beyond the plan", { n: b.extra })}` : ""}</div>`;
+}
+
 function renderBoard() {
   const w = state.week, isCur = w === thisWeek();
   for (const p of PEOPLE) if (p.id !== "WGW") queueMicrotask(() => loadHist(p.id));
   let html = `<div class="section">${isCur ? tr("This week") : tr("Week of {d}", { d: md(fromIso(w)) })}</div>`;
 
   for (const p of PEOPLE) {
-    const s = summary(p.id, w);
+    const s = summary(p.id, w), b = s ? boardWeek(p.id, w) : null;
     const tot = weekTotals(p.id, w);
     const sug = isCur ? todayOf(p.id) : null;
+    const pct = b && b.total ? b.done / b.total : 0;
     html += `<button class="pcard" data-goto="${p.id}" style="--c:${p.color}">
       <div class="top"><span class="name"><i style="background:${p.color}"></i>${p.id}</span>
-        <span class="cnt">${s ? `${s.done}<small>/${s.total}</small>` : "—"}</span></div>
+        <span class="cnt">${b ? `${b.done}<small>/${b.total}</small>${b.extra ? `<em>+${b.extra}</em>` : ""}` : "—"}</span></div>
       <div class="blurb">${esc(s ? s.plan.title : p.blurb)}</div>`;
-    if (s) {
-      const set = doneSet(p.id, w);
-      html += `<div class="progress"><div class="track"><div class="fill" style="width:${s.pct * 100}%;background:${s.pct === 1 ? "var(--ok)" : p.color}"></div></div></div>
-        <div class="pips">${s.items.map((it) => {
-          const st = itemStatus(w, it, set.has(it.id));
-          return `<span class="pip ${st}" title="${esc(it.title)}">${tr(it.day)}</span>`;
-        }).join("")}</div>`;
+    if (b) {
+      html += `<div class="progress"><div class="track"><div class="fill" style="width:${pct * 100}%;background:${pct === 1 ? "var(--ok)" : p.color}"></div></div></div>
+        ${weekStrip(b)}`;
     } else {
       html += `<div class="blurb" style="margin-top:6px">${esc(tr(planFor(p.id, w).empty))}</div>`;
     }
@@ -844,22 +964,22 @@ function renderBoard() {
   for (const p of PEOPLE) {
     html += `<tr><td>${p.id}</td>`;
     for (const wk of weeks) {
-      const s = summary(p.id, wk);
+      const b = summary(p.id, wk) ? boardWeek(p.id, wk) : null;
       const tot = weekTotals(p.id, wk);
       const mins = tot && tot.min ? `<small>${tot.min}′</small>` : "";
-      if (!s || !state.loaded.has(wk)) {
+      if (!b || !state.loaded.has(wk)) {
         html += `<td><div class="cell" style="color:var(--mute)">${mins ? `<span>—</span>${mins}` : "—"}</div></td>`;
         continue;
       }
-      const pct = Math.round(s.pct * 100);
-      const alpha = Math.round((0.15 + 0.85 * s.pct) * 255).toString(16).padStart(2, "0");
-      const bg = s.pct === 0 ? "var(--card)" : p.color + alpha;
-      const fg = s.pct >= 0.6 ? "#0f1115" : "var(--text)";
-      html += `<td><div class="cell" style="background:${bg};color:${fg}"><span>${pct}%</span>${mins}</div></td>`;
+      const f = b.total ? b.done / b.total : 0;
+      const alpha = Math.round((0.15 + 0.85 * f) * 255).toString(16).padStart(2, "0");
+      const bg = f === 0 ? "var(--card)" : p.color + alpha;
+      const fg = f >= 0.6 ? "#0f1115" : "var(--text)";
+      html += `<td><div class="cell" style="background:${bg};color:${fg}"><span>${Math.round(f * 100)}%${b.extra ? `<sup>+${b.extra}</sup>` : ""}</span>${mins}</div></td>`;
     }
     html += `</tr>`;
   }
-  html += `</table><div class="legend">${tr("Top: share of planned sessions ticked off. Below: training minutes that week (WGW from Garmin; TJH and SJH from what they log). Tap a runner to open their week.")}</div>`;
+  html += `</table><div class="legend">${tr("Top: share of planned sessions done (+ sessions beyond the plan). Below: training minutes that week (WGW from Garmin; TJH and SJH from what they log). Tap a runner to open their week.")}</div>`;
   return html;
 }
 

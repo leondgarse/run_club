@@ -101,7 +101,10 @@ npm run dev            # http://localhost:8788  (PASSCODE / MISTRAL_API_KEY from
   replacing the days from `from` on; days left out become rest. The header shows "✎ Adjusted · reason · Revert".
   TJH's proposals are validated in `peer_suggest.py`; WGW's in the private `build_public.py` (also the privacy check)
   and WGW's context gets the accepted change. SJH's plan comes from their own app and isn't changed.
-- **📊 All** tab: per runner, plan progress, this week's training minutes (by type; km run for TJH/SJH), and today's
+- **📊 All** tab: a Mon–Sun strip per runner (planned sessions: done / missed / today / upcoming, shown on the day
+  they were done; "+" marks training beyond the plan; rest days empty), "done/total +extra" and days trained.
+  `weekDays()` in `plans.js` builds it; WGW's sessions count as done from the Garmin calendar (same matching as the
+  server). Also: per runner, plan progress, this week's training minutes (by type; km run for TJH/SJH), and today's
   call + headline; the 5-week table shows plan % with that week's minutes underneath.
 
 ## WGW: daily suggestion + Garmin summary
@@ -180,6 +183,17 @@ Each daily prompt gets a CLUB section (`lib/club.js`): the other runners' last 1
 and notes quoted as data) and their computed numbers; WGW only as the minutes/call in public `wgw.json`. Claude may
 write one `club` line (shown as "Club" on the card) when a clubmate is clearly better at what this runner needs.
 WGW's private hook gets the same section from `GET /api/club?person=WGW`.
+
+## Charts (TJH / SJH tabs)
+
+`public/charts.js` (shared with the mini program and the server's HR zone / race distance) turns their runs into:
+**aerobic efficiency** on easy runs (metres per heartbeat = speed ÷ HR, runs at or under the easy ceiling; a trend
+line only with 4+ runs over 3+ weeks), **pace vs heart rate** for every run in 120 days with the easy-ceiling line,
+and a **goal chart**: a long race (half/full) → longest run per week against the race distance and date; a short one
+(5K/10K) → times over that distance from runs of about that length against the goal time in the target text.
+One series each in the runner's colour, reference lines muted, hover tooltips and a table view under each.
+SJH: when next week has no plan, the daily suggestion drafts one (`plan_change`, fill-only: `FILL_ONLY` in
+`plans.js`; the API refuses it for a week that has a plan); it shows on that week's page to accept.
 
 ## Screenshot reading
 

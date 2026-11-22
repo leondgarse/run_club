@@ -3,7 +3,8 @@ import { S, PEOPLE, SELF_LOG, person, planFor, doneSet, logOf, dataChanged, pars
 import { api, getStatic, me } from "../../utils/api.js";
 import { t as tr, tKind, localized, currentLang, setLang } from "../../utils/i18n.js";
 import { iso, addDays, mondayOf, fromIso, md, thisWeek, todayIso, todayIndex, toSec, DAYS, MONTHS } from "../../utils/dates.js";
-import { normChange } from "../../shared/plans.js";
+import { normChange, weekDays } from "../../shared/plans.js";
+import { chartData, mmss } from "../../shared/charts.js";
 
 const HISTORY_WEEKS = 5;
 const POLL_MS = 45_000;
@@ -290,6 +291,68 @@ function selfDash(p) {
 }
 
 let showAllActs = null;
+// ── Charts (same data as the site, public/charts.js); drawn with positioned views: % of the plot box ──
+function runsOf(p) {
+  const h = S.hist.get(p);
+  if (!h) return [];
+  const runs = h.activities.filter((a) => a.type === "run");
+  const have = new Set(runs.map((a) => a.date)), linked = new Set(runs.filter((a) => a.week).map((a) => `${a.week}|${a.item}`));
+  for (const r of h.logs) {
+    const it = planFor(p, r.week).items?.find((i) => i.id === r.item);
+    if (!it || /strength/i.test(it.kind) || !r.km || !r.duration || linked.has(`${r.week}|${r.item}`)) continue;
+    const date = iso(addDays(fromIso(r.week), it.dayIndex));
+    if (!have.has(date)) runs.push({ date, km: r.km, duration: r.duration, hr: r.hr, title: it.title });
+  }
+  return runs;
+}
+const md2 = (d) => `${+d.slice(5, 7)}-${+d.slice(8)}`;
+const dayN = (d) => Date.parse(d + "T00:00:00Z") / 864e5;
+const pct = (v, a, b, inv = false) => { const f = (v - a) / (b - a || 1); return Math.round((inv ? f : 1 - f) * 1000) / 10; }; // top %
+const xp = (v, a, b) => Math.round(((v - a) / (b - a || 1)) * 1000) / 10;
+function chartsVM(p) {
+  const c = chartData(runsOf(p), todayIso(), S.goals[p] || null), out = [];
+  if (c.eff) {
+    const pts = c.eff.points, xs = pts.map((q) => dayN(q.date)), vs = pts.map((q) => q.v);
+    const lo = Math.floor((Math.min(...vs) - 0.05) * 20) / 20, hi = Math.ceil((Math.max(...vs) + 0.05) * 20) / 20;
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    const t = c.eff.trend ? ` ${tr("Trend {v} per 4 weeks.", { v: (c.eff.trend.per4w >= 0 ? "+" : "") + c.eff.trend.per4w.toFixed(2) })}` : "";
+    out.push({ k: "eff", title: tr("Aerobic efficiency · easy runs"), sub: tr("Metres per heartbeat on runs at HR ≤ {n}. Higher = fitter.", { n: c.eff.ceil }) + t,
+      yHi: hi.toFixed(2), yLo: lo.toFixed(2), xLo: md2(pts[0].date), xHi: md2(pts[pts.length - 1].date),
+      dots: pts.map((q, i) => ({ k: i, l: xp(dayN(q.date), x0, x1), t: pct(q.v, lo, hi) })),
+      rows: pts.map((q, i) => ({ k: i, cells: [md2(q.date), q.v, q.pace, q.hr, q.km] })), head: [tr("Date"), "m/beat", tr("Pace"), "HR", "km"] });
+  }
+  if (c.scatter) {
+    const pts = c.scatter.points, hrs = pts.map((q) => q.hr), ps = pts.map((q) => q.pace), ceil = c.scatter.ceil;
+    const x0 = Math.min(...hrs, ceil || 999) - 5, x1 = Math.max(...hrs, ceil || 0) + 5;
+    const y0 = Math.floor(Math.min(...ps) / 30) * 30, y1 = Math.ceil(Math.max(...ps) / 30) * 30;
+    out.push({ k: "sc", title: tr("Pace vs heart rate"), sub: tr("Every run, last 120 days. Faster pace is higher; dots right of the line weren't easy."),
+      yHi: mmss(y0), yLo: mmss(y1), xLo: `HR ${Math.round(x0)}`, xHi: `HR ${Math.round(x1)}`,
+      vline: ceil ? { l: xp(ceil, x0, x1), label: tr("easy ≤ {n}", { n: ceil }) } : null,
+      dots: pts.map((q, i) => ({ k: i, l: xp(q.hr, x0, x1), t: pct(q.pace, y0, y1, true) })),
+      rows: pts.map((q, i) => ({ k: i, cells: [md2(q.date), q.paceText, q.hr, q.km] })), head: [tr("Date"), tr("Pace"), "HR", "km"] });
+  }
+  if (c.goal?.kind === "long") {
+    const g = c.goal, step = Math.max(g.target, ...g.bars.map((b) => b.km)) > 30 ? 10 : 5;
+    const top = Math.ceil((Math.max(g.target, ...g.bars.map((b) => b.km)) + 1) / step) * step;
+    out.push({ k: "long", title: tr("Long run toward the race"), sub: tr("Longest run each week vs the race distance."),
+      yHi: `${Math.round(top)}`, yLo: "0", xLo: md2(g.bars[0].week), xHi: tr("this week"),
+      hline: { t: pct(g.target, 0, top), label: `${g.target} km${g.date ? ` · ${md2(g.date)}` : ""}` },
+      bars: g.bars.map((b, i) => ({ k: i, h: Math.round((b.km / top) * 1000) / 10 })),
+      rows: g.bars.map((b, i) => ({ k: i, cells: [md2(b.week), b.km || "—"] })), head: [tr("Week"), "km"] });
+  } else if (c.goal?.kind === "time") {
+    const g = c.goal, xs = g.points.map((q) => dayN(q.date)), ts = g.points.map((q) => q.t).concat(g.target ? [g.target] : []);
+    const y0 = Math.floor(Math.min(...ts) / 60) * 60 - 60, y1 = Math.ceil(Math.max(...ts) / 60) * 60 + 60;
+    const x0 = Math.min(...xs) - 1, x1 = Math.max(...xs) + 1;
+    out.push({ k: "time", title: tr("{k} km times", { k: g.km }), sub: tr("Runs of about {k} km, timed over {k} km. Faster is higher.", { k: g.km }),
+      yHi: mmss(y0), yLo: mmss(y1), xLo: md2(g.points[0].date), xHi: md2(g.points[g.points.length - 1].date),
+      hline: g.target ? { t: pct(g.target, y0, y1, true), label: tr("goal {t}", { t: mmss(g.target) }) } : null,
+      dots: g.points.map((q, i) => ({ k: i, l: xp(dayN(q.date), x0, x1), t: pct(q.t, y0, y1, true) })),
+      rows: g.points.map((q, i) => ({ k: i, cells: [md2(q.date), q.time, q.km] })), head: [tr("Date"), tr("Time"), "km"] });
+  }
+  return out.length ? out : null;
+}
+
+const tableOpen = {}; // chart table views opened ("SJHeff" -> true)
 function selfLogVM(p) {
   const h = S.hist.get(p);
   const acts = h?.activities || [];
@@ -301,6 +364,7 @@ function selfLogVM(p) {
     empty: tr(h?.ready ? "Nothing added yet. Add runs, gym or swims here — on or off the plan, past sessions too." : "Loading…"),
     more: acts.length > 5 ? (showAllActs === p ? tr("Show fewer") : tr("Show all {n}", { n: acts.length })) : "",
     dash: g ? dashVM(g, { note: tr("From what's logged here: ticked plan sessions plus added activities.") }) : null,
+    charts: h?.ready ? chartsVM(p) : null, chartsTitle: tr("Charts"), tableLabel: tr("Table"),
   };
 }
 
@@ -312,6 +376,13 @@ function personVM(pid) {
   if (!s) {
     vm.empty = tr(planFor(pid, S.week).empty);
     vm.blurb = p.blurb;
+    if (pid === "SJH" && S.week > thisWeek()) { // an empty future week: Claude's draft from today's suggestion
+      if (todayStale(S.today.get(pid))) loadToday(pid);
+      const sug = S.today.get(pid)?.suggestion, pc = normChange(sug?.plan_change);
+      const prop = pc && pc.start <= iso(addDays(fromIso(S.week), 6)) && pc.end >= S.week ? proposalVM(pid, sug) : null;
+      vm.card = { color: p.color, head: tr("Proposed week"),
+        mute: prop ? tr("Drafted by Claude from this week's plan and your target.") : tr("When a week has no plan yet, Claude drafts one in the 9:00 suggestion. It shows here to accept."), proposal: prop };
+    }
   } else {
     const { plan, done, total, pct, km } = s;
     const set = doneSet(pid, S.week);
@@ -373,17 +444,31 @@ function todayOf(pid) {
   return t?.suggestion?.date === todayIso() ? t.suggestion : null;
 }
 
+// All tab: the 7 days of a week per runner, planned sessions (status) + training beyond the plan.
+const wgwActs = () => Object.entries(S.wgw?.calendar || {}).flatMap(([d, c]) => [
+  ...(c.gym ? [{ id: `${d}|gym`, date: d, type: "gym" }] : []), ...(c.cardio || []).map((t) => ({ id: `${d}|${t}`, date: d, type: t }))]);
+function boardWeek(pid, w) {
+  if (planFor(pid, w).empty) return null;
+  const acts = pid === "WGW" ? wgwActs() : S.hist.get(pid)?.activities || [];
+  return weekDays(pid, w, doneSet(pid, w), acts, todayIso(), S.planChanges, pid === "WGW");
+}
+const typeColor = (t) => (t === "gym" ? WGW_COLORS.pull : WGW_COLORS[t] || WGW_COLORS.other);
+
 function boardVM() {
   const w = S.week, isCur = w === thisWeek();
   const cards = PEOPLE.map((p) => {
-    const s = summary(p.id, w);
+    const s = summary(p.id, w), b = s ? boardWeek(p.id, w) : null;
     const tot = weekTotals(p.id, w);
     const sug = isCur ? todayOf(p.id) : null;
-    const c = { id: p.id, color: p.color, count: s ? `${s.done}` : "—", total: s ? `/${s.total}` : "", blurb: s ? s.plan.title : p.blurb };
-    if (s) {
-      const set = doneSet(p.id, w);
-      Object.assign(c, { pct: s.pct * 100, fill: s.pct === 1 ? "var(--ok)" : p.color,
-        pips: s.items.map((it) => ({ id: it.id, st: itemStatus(w, it, set.has(it.id)), label: tr(it.day) })) });
+    const c = { id: p.id, color: p.color, count: b ? `${b.done}` : "—", total: b ? `/${b.total}` : "", extra: b?.extra ? `+${b.extra}` : "",
+      blurb: s ? s.plan.title : p.blurb };
+    if (b) {
+      const pct = b.total ? b.done / b.total : 0, today = todayIso();
+      Object.assign(c, { pct: pct * 100, fill: pct === 1 ? "var(--ok)" : p.color,
+        days: b.days.map((d) => ({ k: d.di, label: tr(d.name), today: d.date === today,
+          planned: d.planned.map((x) => ({ k: x.id, st: x.status })),
+          extra: d.extra.map((t) => ({ k: t, c: typeColor(t) })) })),
+        wsum: (b.active === 1 ? tr("1 day trained") : tr("{n} days trained", { n: b.active })) + (b.extra ? ` · ${tr("{n} beyond the plan", { n: b.extra })}` : "") });
     } else c.emptyText = tr(planFor(p.id, w).empty);
     if (tot && tot.min) {
       c.mins = `${tot.min}′`;
@@ -398,18 +483,19 @@ function boardVM() {
   const rows = PEOPLE.map((p) => ({
     id: p.id,
     cells: weeks.map((wk) => {
-      const s = summary(p.id, wk);
+      const b = summary(p.id, wk) ? boardWeek(p.id, wk) : null;
       const tot = weekTotals(p.id, wk);
       const mins = tot && tot.min ? `${tot.min}′` : "";
-      if (!s || !S.loaded.has(wk)) return { wk, text: "—", mins, bg: "var(--card)", fg: "var(--mute)" };
-      const alpha = Math.round((0.15 + 0.85 * s.pct) * 255).toString(16).padStart(2, "0");
-      return { wk, text: `${Math.round(s.pct * 100)}%`, mins, bg: s.pct === 0 ? "var(--card)" : p.color + alpha, fg: s.pct >= 0.6 ? "#0f1115" : "var(--text)" };
+      if (!b || !S.loaded.has(wk)) return { wk, text: "—", mins, bg: "var(--card)", fg: "var(--mute)" };
+      const f = b.total ? b.done / b.total : 0;
+      const alpha = Math.round((0.15 + 0.85 * f) * 255).toString(16).padStart(2, "0");
+      return { wk, text: `${Math.round(f * 100)}%${b.extra ? ` +${b.extra}` : ""}`, mins, bg: f === 0 ? "var(--card)" : p.color + alpha, fg: f >= 0.6 ? "#0f1115" : "var(--text)" };
     }),
   }));
   return {
     title: isCur ? tr("This week") : tr("Week of {d}", { d: md(fromIso(w)) }), cards,
     histTitle: tr("Last {n} weeks", { n: HISTORY_WEEKS }), weeks: weeks.map((wk) => ({ wk, label: md(fromIso(wk)) })), rows,
-    legend: tr("Top: share of planned sessions ticked off. Below: training minutes that week (WGW from Garmin; TJH and SJH from what they log). Tap a runner to open their week."),
+    legend: tr("Top: share of planned sessions done (+ sessions beyond the plan). Below: training minutes that week (WGW from Garmin; TJH and SJH from what they log). Tap a runner to open their week."),
   };
 }
 
@@ -427,7 +513,7 @@ const L = () => ({
 function view() {
   const status = !S.online ? tr("Offline — changes may not be saved")
     : S.lastSync ? tr("Synced {t}", { t: `${String(S.lastSync.getHours()).padStart(2, "0")}:${String(S.lastSync.getMinutes()).padStart(2, "0")}` }) : tr("Loading…");
-  return { h: header(), L: L(), board: S.tab === "board" ? boardVM() : null, p: S.tab === "board" ? null : personVM(S.tab), status };
+  return { tableOpen, h: header(), L: L(), board: S.tab === "board" ? boardVM() : null, p: S.tab === "board" ? null : personVM(S.tab), status };
 }
 
 // ── actions ──────────────────────────────────────────────────────────────────
@@ -500,6 +586,7 @@ Page({
   goto(e) { S.tab = e.currentTarget.dataset.p; store.set("tab", S.tab); render(); wx.pageScrollTo({ scrollTop: 0, duration: 0 }); },
   toggleNotes() { store.set("notesOpen", store.get("notesOpen") === "1" ? "0" : "1"); render(); },
   toggleNumbers() { store.set("numOpen", store.get("numOpen") === "0" ? "1" : "0"); render(); },
+  toggleTable(e) { const k = e.currentTarget.dataset.k; tableOpen[k] = !tableOpen[k]; render(); },
 
   async accept(e) {
     const p = e.currentTarget.dataset.p;

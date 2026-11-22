@@ -5,7 +5,7 @@
 //        was written; refresh = { used, left, pending, failed } for the on-demand refresh, see ./refresh.js)
 // WGW doesn't use this: their suggestion comes from Garmin via ../../daily.sh (public/wgw.json).
 import { DATE, HttpError, fromQuery, handle, json, key, refreshInfo } from "../../lib/shared.js";
-import { CHANGEABLE, CHANGE_KINDS, planFor as basePlanFor } from "../../public/plans.js";
+import { CHANGEABLE, CHANGE_KINDS, FILL_ONLY, planFor as basePlanFor, weekIsEmpty } from "../../public/plans.js";
 import { DAY, describeWeek, mmss, sec } from "../../lib/week.js";
 import { formCheck, formFlags } from "../../lib/form.js";
 import { sportsScience } from "../../lib/science.js";
@@ -28,6 +28,17 @@ today), and can cross into next week. List every session in that range with its 
 out become rest, dates outside it keep the plan. Resolve relative words in the TARGET ("for 1 week", "till next
 Wednesday", "next week") from the date the target was set, and say the dates in "why". Use the plan's notation
 (E, T, I, R, M, G paces, "6×800 m @ I"). Keep the plan's style and weekly volume unless the reason is to cut it.
+WEEKEND REVIEW (Sat/Sun): look back at how this week actually went (sessions done on other days, extra runs beyond
+the plan, missed sessions, a test result and the paces it sets) and, if next week's plan no longer fits that, propose
+the changes for next week. If it fits as written, null.
+
+`;
+// SJH's weeks come from their own app; when next week has none yet, Claude drafts it (they can accept it).
+const fillRules = (mon, sun) => `NEXT WEEK HAS NO PLAN YET (${mon} to ${sun}). Draft it in "plan_change": start ${mon}, end ${sun},
+every session with its date. Build it like this week's plan from their own app (same kinds of sessions, rest days,
+strength days, distances in km, minutes in "meta"), moved on by the TARGET phase and the recent load: in a build phase
+add about 5-10% volume; in a taper or race week cut it. Kinds must be one of the list below; put levels/minutes in
+"meta" (e.g. "L2 · 36 min"). Respect the easy HR ceiling in easy-run metas. "why" says what changed vs this week.
 
 `;
 
@@ -169,6 +180,10 @@ async function build(env, src, wgwJson = null) {
   const target = goalContext(goal, today, sessions.filter((a) => a.type === "run"));
 
   const club = await clubContext(env, person, today, wgwJson);
+  // Plan changes: TJH/WGW any time it's needed; SJH only to fill a next week that has no plan yet.
+  const nextMon = shift(week, 7), fill = FILL_ONLY.has(person) && weekIsEmpty(person, nextMon);
+  const canChange = CHANGEABLE.has(person) && (!FILL_ONLY.has(person) || fill);
+  const changeRules = !canChange ? "" : fill ? fillRules(nextMon, shift(nextMon, 6)) : PLAN_CHANGE_RULES;
   const prompt = `You are a careful running coach writing TODAY's suggestion for an amateur runner (${person}).
 Today is ${today} (${DAY[todayIdx]}).${paces ? `\nTheir target paces: ${paces}.` : ""}
 TODAY'S PLAN (${DAY[todayIdx]}): ${dayPlan(today)}
@@ -231,7 +246,7 @@ In "yesterday", comment in 1-2 short sentences on how yesterday went against you
 was no suggestion): followed, swapped, overdone, skipped? Use the logged numbers. If nothing was planned, suggested
 or logged yesterday, use null.
 
-${CHANGEABLE.has(person) ? PLAN_CHANGE_RULES : ""}${club ? `${club}
+${changeRules}${club ? `${club}
 
 ${CLUB_RULES}
 
@@ -252,7 +267,7 @@ Reply with ONLY one JSON object:
  "next": "<max 140 chars, tomorrow, with its key target>",
  "yesterday": "<max 160 chars, how yesterday went vs the suggestion/plan, no advice, or null>",
  "science": "<max 260 chars, the physiology/biomechanics behind today's advice: name the tissue or system and the mechanism>",
- "club": "<max 160 chars, one thing to learn from a clubmate (see CLUB), or null>"${CHANGEABLE.has(person) ? `,
+ "club": "<max 160 chars, one thing to learn from a clubmate (see CLUB), or null>"${canChange ? `,
  "plan_change": null or {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "why": "<max 160 chars>", "sessions": [{"date": "YYYY-MM-DD", "kind": "<one of: ${CHANGE_KIND_LIST}>", "title": "<max 50 chars, e.g. E 6 km + 4 strides>", "meta": "<max 40 chars or empty>"}]}` : ""}}`;
 
   return { ...base, prompt, form: flags?.text || null, numbers: numbers.card, prehab: science.prehab };

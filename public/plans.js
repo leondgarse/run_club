@@ -166,12 +166,16 @@ export function planFor(person, week, changes) {
       return list.map((x) => [day, KIND_COLOR[x.kind], x.kind, x.title, x.meta || ""]);
     })]
     .sort((x, y) => DAY_INDEX[x[0]] - DAY_INDEX[y[0]]); // stable: keeps a day's order
-  return { title: b.title || "Adjusted week", sub: b.empty ? "" : b.sub, items: toItems(rows, b.targetFor),
+  return { title: b.title || "Plan from Claude", sub: b.empty ? "" : b.sub, items: toItems(rows, b.targetFor),
     notes: b.notes, adjusted: ch.why || "" };
 }
 
 // ─── Plan changes (proposed by Claude in the daily suggestion, accepted by the runner) ──────────────────
-export const CHANGEABLE = new Set(["TJH", "WGW"]);
+// SJH's weeks come from their own app (SJH_WEEKS): a change only fills a week that has no plan yet.
+export const CHANGEABLE = new Set(["TJH", "WGW", "SJH"]);
+export const FILL_ONLY = new Set(["SJH"]);
+/** True when the week has no plan of its own (before any accepted change). */
+export const weekIsEmpty = (person, week) => !!basePlan(person, week).empty;
 const KIND_COLOR = {
   Easy: C.easy, Long: C.easy, "Long · Easy": C.blue, Tempo: C.threshold, Threshold: C.threshold,
   Interval: C.interval, Repetition: C.rep, "Goal pace": C.goal, Test: C.goal, Race: C.goal,
@@ -258,4 +262,86 @@ export function cleanChange(c, from = 0) {
     return { day, kind: x.kind, title, meta: txt(x.meta, 40, "note") };
   }).sort((x, y) => DAY_INDEX[x.day] - DAY_INDEX[y.day]);
   return { from, sessions, why: txt(c.why, 200, "reason") };
+}
+
+// ─── Sessions done on another day (shared by the server, lib/match.js, and the All tab) ───────────────────
+const sessionType = (kind) => (/strength/i.test(kind) ? "gym" : /swim/i.test(kind) ? "swim" : "run");
+const TEST_KIND = /^(test|race)$/i;
+const SAYS_TEST = /\b(test|race|time trial|TT)\b|测试|比赛/i;
+const MATCH_TYPES = ["run", "gym", "swim"];
+
+/**
+ * @param person
+ * @param acts     activities free to (re)match: [{ id, date, type, title, note }]
+ * @param weeks    [{ week, taken: Set(item ids ticked or linked by hand) }]
+ * @param changes  accepted plan changes { "TJH|2026-11-16": {...} }
+ * @param today    the runner's date
+ * @returns Map(activity id → { week, item })
+ */
+export function assignSessions(person, acts, weeks, changes, today) {
+  const sessions = [];
+  for (const w of weeks) {
+    for (const it of planFor(person, w.week, changes).items || []) {
+      if (it.rest || w.taken.has(it.id)) continue;
+      sessions.push({ week: w.week, item: it.id, date: dShift(w.week, it.dayIndex), type: sessionType(it.kind), test: TEST_KIND.test(it.kind) });
+    }
+  }
+  sessions.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const out = new Map(), used = new Set();
+  const free = [...acts].filter((a) => MATCH_TYPES.includes(a.type)).sort((a, b) => (a.date < b.date ? -1 : 1));
+  const says = (a) => SAYS_TEST.test(`${a.title || ""} ${a.note || ""}`);
+  for (const testPass of [true, false]) {
+    for (const lag of [0, 1, -1]) { // same day, a day late, a day early
+      for (const s of sessions) {
+        if (used.has(`${s.week}|${s.item}`) || (testPass && !s.test)) continue;
+        if (lag === -1 && !(s.date < today)) continue;
+        const a = free.find((x) => !out.has(x.id) && x.type === s.type && x.date === dShift(s.date, lag) && (!s.test || says(x)) &&
+          (testPass ? says(x) : true));
+        if (!a) continue;
+        out.set(a.id, { week: s.week, item: s.item });
+        used.add(`${s.week}|${s.item}`);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The 7 days of a week for the All tab: each planned session with its status (done / miss / next / todo), shown on
+ * the day it was done when that differs, and the training beyond the plan ("extra").
+ * @param acts   [{ id, date, type, week?, item? }] that week's activities (TJH/SJH: My log; WGW: the Garmin calendar)
+ * @param auto   true for WGW: an unticked session counts as done when an activity matches it (same rule as the server)
+ * @returns { days: [{ date, di, planned: [{ id, title, kind, status, moved }], extra: [types] }], done, total, extra, active }
+ */
+export function weekDays(person, week, ticked, acts, today, changes, auto = false) {
+  const plan = planFor(person, week, changes);
+  const items = (plan.items || []).filter((i) => !i.rest);
+  const used = new Set(), doneAt = new Map();
+  for (const it of items) {
+    if (!ticked.has(it.id)) continue;
+    const date = dShift(week, it.dayIndex);
+    const a = acts.find((x) => x.week === week && x.item === it.id) ||
+      acts.find((x) => !used.has(x.id) && !x.item && x.date === date && x.type === sessionType(it.kind));
+    if (a) used.add(a.id);
+    doneAt.set(it.id, a?.date || date);
+  }
+  if (auto) {
+    const free = acts.filter((x) => !used.has(x.id));
+    const m = assignSessions(person, free, [{ week, taken: new Set(doneAt.keys()) }], changes, today);
+    for (const [id, s] of m) { used.add(id); doneAt.set(s.item, free.find((x) => x.id === id).date); }
+  }
+  const days = DAY_NAMES.map((name, di) => ({ date: dShift(week, di), di, name, planned: [], extra: [] }));
+  for (const it of items) {
+    const date = dShift(week, it.dayIndex), done = doneAt.get(it.id);
+    const status = done ? "done" : date < today ? "miss" : date === today ? "next" : "todo";
+    const at = done && done >= week && done <= dShift(week, 6) ? done : date;
+    days[dIdx(at)].planned.push({ id: it.id, title: it.title, kind: it.kind, status, moved: at !== date });
+  }
+  for (const a of acts) if (!used.has(a.id) && a.date >= week && a.date <= dShift(week, 6)) {
+    const d = days[dIdx(a.date)];
+    if (!d.extra.includes(a.type)) d.extra.push(a.type);
+  }
+  const extra = acts.filter((a) => !used.has(a.id) && a.date >= week && a.date <= dShift(week, 6)).length;
+  const active = days.filter((d) => d.date <= today && (d.extra.length || d.planned.some((x) => x.status === "done"))).length;
+  return { days, done: doneAt.size, total: items.length, extra, active };
 }

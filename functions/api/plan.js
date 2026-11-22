@@ -6,7 +6,7 @@
 //        new change merges with one accepted earlier in that week; days already past never change.
 //   POST /api/plan { person, week, revert: true }         -> { change: null }   back to the original week
 import { DATE, HttpError, fromQuery, handle, json } from "../../lib/shared.js";
-import { CHANGEABLE, changeDays, splitChange } from "../../public/plans.js";
+import { CHANGEABLE, FILL_ONLY, changeDays, splitChange, weekIsEmpty } from "../../public/plans.js";
 
 export const onRequestGet = handle(async ({ request, env }) => {
   const { from, to } = fromQuery(request);
@@ -31,6 +31,9 @@ export const onRequestPost = handle(async ({ request, env }) => {
   let parts;
   try { parts = splitChange(b.change, today); } catch (e) {
     throw new HttpError(400, /passed/.test(e.message) ? "This proposal is out of date (its days have passed)" : e.message);
+  }
+  if (FILL_ONLY.has(b.person) && parts.some((x) => !weekIsEmpty(b.person, x.week))) {
+    throw new HttpError(400, "This week already has a plan from the runner's own app");
   }
   const source = DATE.test(b.source || "") ? b.source : null, now = new Date().toISOString();
   const marks = parts.map(() => "?").join(",");

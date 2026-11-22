@@ -142,3 +142,31 @@
 .moved{font-size:11.5px;color:var(--mute);margin-top:2px}
 .sclub{font-size:13px;background:var(--card2);border-radius:9px;padding:7px 9px}
 .sclub .b{color:var(--c);margin-right:4px}
+.cx{font-size:12px;color:var(--ok);margin-left:4px}
+.wk7{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:10px}
+.wd{min-height:46px;border:1px solid var(--line);border-radius:8px;background:var(--card2);display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0}
+.wd.today{border-color:var(--c)}
+.wdl{font-size:10.5px;font-weight:700;color:var(--mute)}
+.wp{width:70%;height:7px;border-radius:4px;border:1px solid var(--line);background:var(--card)}
+.wp.done{background:var(--ok);border-color:var(--ok)}
+.wp.miss{border-color:var(--miss);background:transparent}
+.wp.next{border-color:var(--c)}
+.wx{width:15px;height:15px;border-radius:50%;background:var(--k);color:#0f1115;font-size:11px;font-weight:800;line-height:15px;text-align:center}
+.wsum{margin-top:6px;font-size:12px;color:var(--mute)}
+.chart{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+.chsub{color:var(--mute);font-size:12px;margin-top:2px}
+.plot{position:relative;margin-top:10px;padding-left:36px}
+.ylab{position:absolute;left:0;width:32px;text-align:right;font-size:10px;color:var(--mute)}
+.ylab.top{top:-6px}.ylab.bot{bottom:-6px}
+.pbox{position:relative;height:130px;border-left:1px solid var(--line);border-bottom:1px solid var(--line)}
+.href{position:absolute;left:0;right:0;border-top:1px dashed var(--mute)}
+.vref{position:absolute;top:0;bottom:0;border-left:1px dashed var(--mute)}
+.rl{position:absolute;font-size:10px;color:var(--text);white-space:nowrap;top:-14px;left:4px}
+.vref .rl{top:0;left:auto;right:4px}
+.cdot{position:absolute;width:8px;height:8px;margin:-6px 0 0 -6px;border-radius:50%;background:var(--c);border:2px solid var(--card)}
+.cbar{position:absolute;bottom:0;width:calc(10% - 2px);margin-left:1px;background:var(--c);border-radius:4px 4px 0 0}
+.xlab{display:flex;justify-content:space-between;font-size:10px;color:var(--mute);margin:4px 0 0 36px}
+.ctab-t{color:var(--mute);font-size:12px;margin-top:6px}
+.ctab .tr{display:flex;font-size:12px;border-bottom:1px solid var(--line);padding:2px 0}
+.ctab .tr text{flex:1}
+.ctab .th{color:var(--mute);font-weight:600}

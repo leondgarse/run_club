@@ -156,6 +156,27 @@
         <button wx:if="{{p.log.more}}" class="more" bindtap="moreActs">{{p.log.more}}</button>
       </view>
       <block wx:if="{{p.log.dash}}"><template is="dash" data="{{d: p.log.dash, L: L}}" /></block>
+      <block wx:if="{{p.log.charts}}">
+        <view class="section">{{p.log.chartsTitle}}</view>
+        <view wx:for="{{p.log.charts}}" wx:for-item="ch" wx:key="k" class="chart" style="--c:{{p.color}}">
+          <view class="b">{{ch.title}}</view><view class="chsub">{{ch.sub}}</view>
+          <view class="plot">
+            <view class="ylab top">{{ch.yHi}}</view><view class="ylab bot">{{ch.yLo}}</view>
+            <view class="pbox">
+              <view wx:if="{{ch.hline}}" class="href" style="top:{{ch.hline.t}}%"><text class="rl">{{ch.hline.label}}</text></view>
+              <view wx:if="{{ch.vline}}" class="vref" style="left:{{ch.vline.l}}%"><text class="rl">{{ch.vline.label}}</text></view>
+              <view wx:for="{{ch.bars}}" wx:for-item="b" wx:key="k" class="cbar" style="left:{{b.k * 10}}%;height:{{b.h}}%"></view>
+              <view wx:for="{{ch.dots}}" wx:for-item="d" wx:key="k" class="cdot" style="left:{{d.l}}%;top:{{d.t}}%"></view>
+            </view>
+          </view>
+          <view class="xlab"><text>{{ch.xLo}}</text><text>{{ch.xHi}}</text></view>
+          <view class="ctab-t" data-k="{{p.id + ch.k}}" bindtap="toggleTable">{{p.log.tableLabel}}</view>
+          <view wx:if="{{tableOpen[p.id + ch.k]}}" class="ctab">
+            <view class="tr th"><text wx:for="{{ch.head}}" wx:key="*this">{{item}}</text></view>
+            <view wx:for="{{ch.rows}}" wx:for-item="r" wx:key="k" class="tr"><text wx:for="{{r.cells}}" wx:for-item="cell" wx:for-index="ci" wx:key="ci">{{cell}}</text></view>
+          </view>
+        </view>
+      </block>
     </block>
     <block wx:if="{{p.dash}}"><template is="dash" data="{{d: p.dash, L: L}}" /></block>
   </block>
@@ -164,11 +185,16 @@
   <block wx:if="{{board}}">
     <view class="section">{{board.title}}</view>
     <view wx:for="{{board.cards}}" wx:for-item="c" wx:key="id" class="pcard" hover-class="pressed" style="--c:{{c.color}}" data-p="{{c.id}}" bindtap="goto">
-      <view class="top"><view class="name"><view class="ndot" style="background:{{c.color}}"></view>{{c.id}}</view><view class="cnt">{{c.count}}<text class="small mute">{{c.total}}</text></view></view>
+      <view class="top"><view class="name"><view class="ndot" style="background:{{c.color}}"></view>{{c.id}}</view><view class="cnt">{{c.count}}<text class="small mute">{{c.total}}</text><text wx:if="{{c.extra}}" class="cx">{{c.extra}}</text></view></view>
       <view class="blurb">{{c.blurb}}</view>
-      <block wx:if="{{c.pips}}">
+      <block wx:if="{{c.days}}">
         <view class="progress"><view class="track"><view class="fill" style="width:{{c.pct}}%;background:{{c.fill}}"></view></view></view>
-        <view class="pips"><view wx:for="{{c.pips}}" wx:for-item="pip" wx:key="id" class="pip {{pip.st}}">{{pip.label}}</view></view>
+        <view class="wk7"><view wx:for="{{c.days}}" wx:for-item="d" wx:key="k" class="wd {{d.today ? 'today' : ''}}">
+          <text class="wdl">{{d.label}}</text>
+          <view wx:for="{{d.planned}}" wx:for-item="x" wx:key="k" class="wp {{x.st}}"></view>
+          <view wx:for="{{d.extra}}" wx:for-item="x" wx:key="k" class="wx" style="--k:{{x.c}}">+</view>
+        </view></view>
+        <view class="wsum">{{c.wsum}}</view>
       </block>
       <view wx:else class="blurb" style="margin-top:6px">{{c.emptyText}}</view>
       <view wx:if="{{c.mins}}" class="bweek"><text class="b">{{c.mins}}</text><text wx:if="{{c.kmRun}}"> · {{c.kmRun}}</text>
