@@ -12,10 +12,10 @@ functions/api/progress.js    ← API (GET range / POST tick)
 functions/api/activities.js  ← TJH/SJH own activity log (GET range / POST add-edit / DELETE)
 functions/api/today.js       ← TJH/SJH daily suggestion (GET: prompt for Claude; POST: read today's)
 functions/api/plan.js        ← TJH/WGW plan changes: accept Claude's proposal / revert (GET range, POST)
-functions/api/goal.js        ← one-line target per runner (English; 中文 copy by Mistral on save)
+functions/api/goal.js        ← one-line target per runner (English; 中文 copy by the AI on save)
 functions/api/refresh.js     ← TJH/SJH ↻ Refresh: queue a rewrite (max 5/day); the Mac polls the queue
 functions/api/actphoto.js    ← up to 3 photos/screenshots per My log activity (GET/PUT/DELETE by idx 0-2)
-functions/api/extract.js     ← read a watch screenshot (Mistral vision)
+functions/api/extract.js     ← read a watch screenshot (DeepSeek / Mistral vision)
 lib/                   ← shared helpers: week/plan text, form bands, coaching metrics, sports-science rules
 schema.sql, migrations/ ← D1 tables
 scripts/daily.sh       ← the 09:00 job (WGW hook → TJH/SJH suggestions → deploy)
@@ -52,23 +52,23 @@ Send the URL + passcode to the others. On a phone: open it → Share → **Add t
 
 Tapping a session ticks it and opens a log sheet: distance / time / pace (auto) / avg HR / note / photo.
 Photos are resized on the phone (~1600px JPEG) and stored in D1. **✨ Fill from screenshot** reads a
-watch/Strava/Garmin summary with Mistral vision (the only thing Mistral is still used for; the suggestions are
-written by Claude, see below).
+watch/Strava/Garmin summary with a vision model (`ai()` in `lib/shared.js`; the suggestions are written by Claude,
+see below).
 
 ```sh
-npx wrangler pages secret put MISTRAL_API_KEY   # once
+npx wrangler pages secret put DEEPSEEK_API_KEY  # once (MISTRAL_API_KEY optional, used as a fallback)
 npm run db:migrate                              # once, if the DB was created with the first schema
 npm run deploy
 ```
-Models tried in order (free tier rate-limits per model): mistral-small → ministral-14b → ministral-8b.
-Set a `MISTRAL_MODEL` secret to prefer a different one. (The DeepSeek fallback and the weekly Coach card were
-removed; a `DEEPSEEK_API_KEY` secret, if set, is unused and can be deleted, as can the old `coach` table.)
+Providers tried in order: DeepSeek `deepseek-flash` (reads images), then Mistral (mistral-small → ministral-14b →
+ministral-8b). A provider without a key is skipped; on 402 (no credit), 429 or 5xx the next one is tried.
+Override the model with a `DEEPSEEK_MODEL` / `MISTRAL_MODEL` secret.
 
 ## Run locally
 
 ```sh
 npm run db:init:local
-npm run dev            # http://localhost:8788  (PASSCODE / MISTRAL_API_KEY from .dev.vars)
+npm run dev            # http://localhost:8788  (PASSCODE / DEEPSEEK_API_KEY from .dev.vars)
 ```
 
 ## Weekly upkeep
@@ -84,7 +84,7 @@ npm run dev            # http://localhost:8788  (PASSCODE / MISTRAL_API_KEY from
   Plan content in `plans.js` (session titles, notes) is shown as written.
 - **🎯 Target** (top of each runner's tab, tap to edit): one line in English, ≤ 60 characters of letters, digits and
   basic punctuation (`TEXT_RULES.goal`), plus an optional race date. `/api/goal` stores it with a Chinese copy made by
-  Mistral on save, shown when the language is 中文. It feeds the daily suggestion: `lib/goal.js` computes days to go,
+  the AI on save, shown when the language is 中文. It feeds the daily suggestion: `lib/goal.js` computes days to go,
   the phase (build / taper / race week / race day, taper length by distance) and the race distance read from the text
   vs the longest run in 28 days. Changing it marks today's suggestion out of date, so ↻ Refresh shows (counts in the 5).
   WGW's private hook fetches WGW's own target into its context. Migration: `migrations/0005_goals.sql`.
@@ -124,7 +124,7 @@ tail -f ~/Library/Logs/run-club-daily.log
 ## TJH / SJH: own log, calendar and daily suggestion
 
 Each of their tabs has **Today** (under the plan and, for TJH, the Paces table), **My log** (+ Add activity, tap a row to edit/delete,
-📷 fills the form from a watch screenshot via Mistral) and the same training calendar + minutes per week as WGW.
+📷 fills the form from a watch screenshot via the vision model) and the same training calendar + minutes per week as WGW.
 The calendar counts ticked plan sessions (logged time, else the plan's "NN min") plus added activities; an
 activity on the same date and type as a ticked session replaces it, so nothing is counted twice.
 
@@ -212,13 +212,13 @@ so the Paces table and the pace/HR checks follow it. Run it again after a real 5
 opens Add activity prefilled from the session and linked to it (`activities.week/item`,
 `migrations/0007_activity_links_photos.sql`). Saving puts it in My log ("✓ plan") and copies km/time/pace/HR/note to the
 ticked session, so the plan's checks see them; one activity per session. WGW's log sheet keeps the single photo.
-**Up to 3 screenshots** per activity: each is read on its own (one Mistral call each, in turn) and merged into the
+**Up to 3 screenshots** per activity: each is read on its own (one AI call each, in turn) and merged into the
 form; a field one screenshot filled isn't overwritten by the next. They're stored with the activity (`activity_photos`).
 Images taller (or wider) than 3:1 are refused (long scrolling captures shrink until the model can't read them);
 the rest are resized to ~2.4 MP, so a tall phone screenshot keeps a readable width.
 
 In **Add activity**, pick a screenshot or just **paste** one (also: paste on TJH's/SJH's tab opens the form; paste in
-a session log attaches it as the photo; drag-and-drop works). `/api/extract` sends it to Mistral vision, which only
+a session log attaches it as the photo; drag-and-drop works). `/api/extract` sends it to the vision model, which only
 **transcribes** label/value pairs, title, date text and any per-km table; `lib/screenshot.js` maps labels to fields
 with an EN/中文 glossary, converts units, and cross-checks (distance × pace ≈ time, cadence × stride ≈ speed, split
 count ≈ km), dropping values that don't fit. Works with any crop: only what's visible is filled. Tested on Huawei

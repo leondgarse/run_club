@@ -870,7 +870,7 @@ async function addShots(files) {
     } catch (e) { toast(e.message); }
   }
   renderShots();
-  for (const sh of added) { // one at a time: the free Mistral tier rate-limits bursts
+  for (const sh of added) { // one at a time: AI providers rate-limit bursts
     await readShot(sh);
     sh.reading = false;
     if (act.open) renderShots();

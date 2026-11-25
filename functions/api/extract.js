@@ -1,7 +1,7 @@
 // POST /api/extract { person, week, item }      -> { km, duration, pace, hr, cadence, date, type, title, extra, notes }
 // POST /api/extract?person=X  (raw image body)  -> same, for the "Add activity" form (pasted/picked; not stored)
-// Mistral vision transcribes the screenshot; lib/screenshot.js maps labels to fields and cross-checks them.
-import { HttpError, PEOPLE, fromQuery, handle, json, key, mistral, toB64 } from "../../lib/shared.js";
+// The vision model (lib/shared.js ai()) transcribes the screenshot; lib/screenshot.js maps labels to fields and cross-checks them.
+import { HttpError, PEOPLE, fromQuery, handle, json, key, ai, toB64 } from "../../lib/shared.js";
 import { PROMPT, mapTranscription } from "../../lib/screenshot.js";
 
 export const onRequestPost = handle(async ({ request, env }) => {
@@ -21,11 +21,11 @@ export const onRequestPost = handle(async ({ request, env }) => {
     if (!photo) throw new HttpError(404, "no photo for this session");
   }
 
-  const text = await mistral(env, [{
+  const text = await ai(env, [{
     role: "user",
     content: [
       { type: "text", text: PROMPT },
-      { type: "image_url", image_url: `data:${photo.mime};base64,${photo.data}` },
+      { type: "image_url", image_url: { url: `data:${photo.mime};base64,${photo.data}` } },
     ],
   }], { json: true, maxTokens: 900 });
 

@@ -3,14 +3,14 @@
 //   GET  /api/goal?person=WGW              -> { goal: {...} | null }   (WGW's private hook reads its own)
 //   POST /api/goal { person, text, date?, max_hr?, rest_hr? } -> { goal }   (empty text clears the target only)
 // max_hr / rest_hr: optional, TJH/SJH only — the two numbers that set the easy ceiling (lib/metrics.js).
-// English only (lib/rules.js TEXT_RULES.goal); the Chinese copy is made here with Mistral on save, best effort.
+// English only (lib/rules.js TEXT_RULES.goal); the Chinese copy is made here with the AI on save, best effort.
 // The text goes into the daily prompt quoted as data (untrusted()), like other runner-typed text.
-import { DATE, HttpError, PEOPLE, fromQuery, handle, json, mistral } from "../../lib/shared.js";
+import { DATE, HttpError, PEOPLE, fromQuery, handle, json, ai } from "../../lib/shared.js";
 import { TEXT_RULES } from "../../lib/rules.js";
 
 async function translate(env, text) {
   try {
-    const out = await mistral(env, [
+    const out = await ai(env, [
       { role: "system", content: "You translate a runner's one-line race or training target from English into natural " +
         "Simplified Chinese, the way Chinese runners write it (e.g. half marathon = 半马, full marathon = 全马, " +
         "PB stays PB). Keep numbers and times as written. Translate place and race names if they have a usual Chinese " +
