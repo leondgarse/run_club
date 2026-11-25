@@ -1,7 +1,7 @@
 // Offline test of lib/screenshot.js label mapping with made-up transcriptions (no real runner data).
 //   node scripts/test_screenshot.mjs
 import assert from "node:assert/strict";
-import { mapTranscription, parseDateTime } from "../lib/screenshot.js";
+import { mapTranscription, needsRetry, parseDateTime } from "../lib/screenshot.js";
 
 const today = "2026-11-16";
 // English app layout (Huawei-like), incl. a Slowest/Fastest bar that must NOT become splits
@@ -97,4 +97,10 @@ r = mapTranscription({
 }, today);
 assert.equal(r.km, 5.02); assert.equal(r.duration, "30:06"); assert.equal(r.hr, 140); assert.equal(r.cadence, 178);
 
+// needsRetry: complete summary → no; missing km or time → yes; table seen but no splits → yes
+assert.equal(needsRetry({ pairs: [] }, { km: 5, duration: "30:00", extra: {} }), false);
+assert.equal(needsRetry({ pairs: [] }, { km: null, duration: "30:00", extra: {} }), true);
+assert.equal(needsRetry({ pairs: [] }, { km: 31, duration: null, extra: {} }), true);
+assert.equal(needsRetry({ splits: [{}, {}], split_total: {} }, { km: 5.52, duration: "31:45", extra: {} }), true);
+assert.equal(needsRetry({ splits: [{}, {}] }, { km: 5.52, duration: "28:38", extra: { splits: "5:00 6:05" } }), false);
 console.log("screenshot mapping: all checks passed");

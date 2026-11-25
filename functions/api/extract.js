@@ -2,7 +2,7 @@
 // POST /api/extract?person=X  (raw image body)  -> same, for the "Add activity" form (pasted/picked; not stored)
 // The vision model (lib/shared.js ai()) transcribes the screenshot; lib/screenshot.js maps labels to fields and cross-checks them.
 import { HttpError, PEOPLE, fromQuery, handle, json, key, ai, toB64 } from "../../lib/shared.js";
-import { PROMPT, mapTranscription } from "../../lib/screenshot.js";
+import { PROMPT, mapTranscription, needsRetry } from "../../lib/screenshot.js";
 
 export const onRequestPost = handle(async ({ request, env }) => {
   let photo;
@@ -21,16 +21,26 @@ export const onRequestPost = handle(async ({ request, env }) => {
     if (!photo) throw new HttpError(404, "no photo for this session");
   }
 
-  const text = await ai(env, [{
-    role: "user",
-    content: [
-      { type: "text", text: PROMPT },
-      { type: "image_url", image_url: { url: `data:${photo.mime};base64,${photo.data}` } },
-    ],
-  }], { json: true, maxTokens: 6000, temperature: 0, think: true });
-
-  let r;
-  try { r = JSON.parse(text.replace(/^```(json)?|```$/g, "").trim()); } catch { throw new HttpError(502, "couldn't read the image"); }
+  // Fast read first (thinking off, ~2 s). If it looks incomplete (lib/screenshot.js needsRetry), read again with
+  // DeepSeek's thinking on (5-20 s): it copes with dense tables and swapped columns, and copies per-km pace bars.
   const today = new Date(Date.now() + 14 * 3600e3).toISOString().slice(0, 10); // latest local date (UTC+14) for the future-date check
-  return json(mapTranscription(r, today));
+  const read = async (think) => {
+    const text = await ai(env, [{
+      role: "user",
+      content: [
+        { type: "text", text: PROMPT },
+        { type: "image_url", image_url: { url: `data:${photo.mime};base64,${photo.data}` } },
+      ],
+    }], { json: true, maxTokens: think ? 6000 : 900, temperature: 0, think });
+    const r = JSON.parse(text.replace(/^```(json)?|```$/g, "").trim());
+    return { r, out: mapTranscription(r, today) };
+  };
+
+  const first = await read(false).catch((e) => (e instanceof SyntaxError ? null : Promise.reject(e)));
+  if (first && !needsRetry(first.r, first.out)) return json(first.out);
+  const second = await read(true).catch((e) => {
+    if (first) return null; // keep the fast read if the careful one fails
+    throw e instanceof SyntaxError ? new HttpError(502, "couldn't read the image") : e;
+  });
+  return json((second || first).out);
 });

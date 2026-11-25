@@ -63,6 +63,8 @@ npm run deploy
 Providers tried in order: DeepSeek `deepseek-flash` (reads images), then Mistral (mistral-small → ministral-14b →
 ministral-8b). A provider without a key is skipped; on 402 (no credit), 429 or 5xx the next one is tried.
 Override the model with a `DEEPSEEK_MODEL` / `MISTRAL_MODEL` secret.
+A screenshot is read fast first (DeepSeek thinking off, ~2 s); if the result looks incomplete (no distance/time, or
+a table but no splits — `needsRetry` in `lib/screenshot.js`) it is read again with thinking on (5–20 s).
 
 ## Run locally
 
