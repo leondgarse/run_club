@@ -27,7 +27,7 @@ export const onRequestPost = handle(async ({ request, env }) => {
       { type: "text", text: PROMPT },
       { type: "image_url", image_url: { url: `data:${photo.mime};base64,${photo.data}` } },
     ],
-  }], { json: true, maxTokens: 900 });
+  }], { json: true, maxTokens: 6000, temperature: 0, think: true });
 
   let r;
   try { r = JSON.parse(text.replace(/^```(json)?|```$/g, "").trim()); } catch { throw new HttpError(502, "couldn't read the image"); }

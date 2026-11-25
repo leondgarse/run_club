@@ -89,4 +89,12 @@ assert.equal(r.date, "2026-11-15"); assert.equal(r.extra.start, "15:01");
 assert.deepEqual(parseDateTime("2026-07-28 18:10", today), { date: "2026-07-28", start: "18:10" });
 assert.deepEqual(parseDateTime("11/14/26, 10:23 PM", today), { date: "2026-11-14", start: "22:23" });
 assert.equal(parseDateTime("12/25/26", today).date, null, "future date is a misread");
+// Huawei "Segments" table lists Duration before Distance; the model sometimes swaps km/time (31:45 must not be 31 km)
+r = mapTranscription({
+  title: null, datetime: null, distance: null, pairs: [{ label: "Avg pace", value: "6'00\"", unit: "/km" }],
+  splits: [{ no: "1", km: "30:00", time: "5.00", pace: "6'00\"", hr: "140" }, { no: "2", km: "00:06", time: "0.02", pace: "5'00\"", hr: "141" }],
+  split_total: { km: "30:06", time: "5.02", pace: "6'00\"", hr: "140", cadence: "178" },
+}, today);
+assert.equal(r.km, 5.02); assert.equal(r.duration, "30:06"); assert.equal(r.hr, 140); assert.equal(r.cadence, 178);
+
 console.log("screenshot mapping: all checks passed");
