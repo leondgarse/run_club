@@ -221,6 +221,7 @@ function openGoal(pid) {
   $("#gHr").hidden = pid === "WGW"; // WGW's health data stays off the site
   $("#gMax").value = g?.max_hr ?? "";
   $("#gRest").value = g?.rest_hr ?? "";
+  $("#gNote").value = g?.note || "";
   $("#goalSheet").classList.add("show");
   document.body.classList.add("noscroll");
 }
@@ -239,6 +240,8 @@ async function saveGoal(clear) {
     const hr = p === "WGW" ? {} : { max_hr: $("#gMax").value.trim() || null, rest_hr: $("#gRest").value.trim() || null };
     const r = await api("/api/goal", { method: "POST", body: JSON.stringify({ person: p, text, date: clear ? null : $("#gDate").value || null, ...hr }) });
     state.goals[p] = r.goal;
+    const note = $("#gNote").value.replace(/\s+/g, " ").trim();
+    if (note !== (r.goal.note || "")) state.goals[p] = (await api("/api/goal", { method: "POST", body: JSON.stringify({ person: p, note }) })).goal;
     if (p !== "WGW") dataChanged(p); // today's suggestion is now older than the target → ↻ Refresh shows
     closeGoal(); render(); toast(tr("Saved ✓"));
   } catch (e) { toast(e.message); }
@@ -414,6 +417,7 @@ function renderSuggestion(color) {
   return `<div class="sugg" style="--c:${c}">
     <div class="shead"><span>${tr("Today")}</span><b class="call">${esc(tr(CALL_LABEL[s.call] || s.call))}</b></div>
     ${s.yesterday ? `<p class="syest"><b>${tr("Yesterday")}</b> ${esc(s.yesterday)}</p>` : ""}
+    ${s.reply ? `<p class="swin"><b>${tr("Re: your note")}</b> ${esc(s.reply)}</p>` : ""}
     ${s.win ? `<p class="swin"><b>${tr("Well done")}</b> ${esc(s.win)}</p>` : ""}
     <div class="stitle">${esc(s.headline)}</div>
     ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
@@ -554,6 +558,7 @@ function suggestionCard(s, color, mute) {
   return `<div class="sugg" style="--c:${CALL_COLOR[s.call] || color}">
     <div class="shead"><span>${tr("Today")}${by ? `<small class="sby">${by}</small>` : ""}</span><b class="call">${esc(tr(CALL_LABEL[s.call] || s.call))}</b></div>
     ${s.yesterday ? `<p class="syest"><b>${tr("Yesterday")}</b> ${esc(s.yesterday)}</p>` : ""}
+    ${s.reply ? `<p class="swin"><b>${tr("Re: your note")}</b> ${esc(s.reply)}</p>` : ""}
     ${s.win ? `<p class="swin"><b>${tr("Well done")}</b> ${esc(s.win)}</p>` : ""}
     <div class="stitle">${esc(s.headline)}</div>
     ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}

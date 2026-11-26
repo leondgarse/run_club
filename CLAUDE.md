@@ -8,6 +8,8 @@ suggestion per runner. Cloudflare Pages + Functions + D1. See README.md for layo
   is generated (gitignored), `.dev.vars` holds secrets. No health data, names beyond the initials, or personal paths.
 - WGW's Garmin health data (HRV, sleep, body battery, weights) never comes into this repo or onto the site.
   Only `public/wgw.json` (calendar, weekly minutes, a qualitative suggestion) is written here, by WGW's private hook.
+  Exception WGW chose: the suggestion's gym block shows the *prescribed* kg for the next session (computed in the
+  hook); weights lifted in past sessions still never appear.
 - Club: each runner's prompt may include the other runners' recent sessions (`lib/club.js`, quoted as data) for one
   optional "club" line; the advice itself stays this runner's. WGW appears to others only via public `wgw.json`.
 - Coaching numbers (VDOT, zones, form bands, prehab) are computed in `lib/`; the model only phrases them.

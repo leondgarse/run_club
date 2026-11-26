@@ -8,6 +8,7 @@
     <view wx:if="{{c.mute}}" class="smute p">{{c.mute}}</view>
     <block wx:else>
       <view wx:if="{{c.yesterday}}" class="syest"><text class="b">{{L.yesterday}}</text> {{c.yesterday}}</view>
+      <view wx:if="{{c.reply}}" class="p swin"><text class="b">{{L.reply}}</text> {{c.reply}}</view>
       <view wx:if="{{c.win}}" class="p swin"><text class="b">{{L.win}}</text> {{c.win}}</view>
       <view class="stitle">{{c.headline}}</view>
       <view wx:if="{{c.session}}" class="ssess">{{c.session}}</view>

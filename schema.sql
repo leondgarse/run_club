@@ -71,7 +71,9 @@ CREATE TABLE IF NOT EXISTS goals (
   zh         TEXT,               -- Chinese copy (null if translation failed; English is shown)
   updated_at TEXT NOT NULL,
   max_hr     INTEGER,            -- optional, from a race/test (TJH/SJH only)
-  rest_hr    INTEGER             -- optional, morning resting HR (TJH/SJH only)
+  rest_hr    INTEGER,            -- optional, morning resting HR (TJH/SJH only)
+  note       TEXT,               -- free-text context for the coach, any language; read by the daily suggestion
+  note_at    TEXT                -- when the note last changed (ISO)
 );
 -- Accepted plan changes (TJH/WGW): Claude proposes one in the daily suggestion, the runner taps Accept.
 -- data = {from, sessions:[{day, kind, title, meta}], why}; days from `from` on replace the plan in public/plans.js.

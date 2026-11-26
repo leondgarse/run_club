@@ -399,6 +399,8 @@ try{var t=localStorage.getItem("theme")||"auto";if(t==="auto")t=matchMedia("(pre
     <label class="full"><b data-i18n="Target">Target</b> <span data-i18n="English, up to 60 characters (中文 is made automatically)">English, up to 60 characters (中文 is made automatically)</span>
       <input id="gText" maxlength="60" placeholder="City Half Marathon" lang="en" autocapitalize="sentences"></label>
     <label class="full"><b data-i18n="Race date">Race date</b> <span data-i18n="optional">optional</span><input id="gDate" type="date"></label>
+    <label class="full"><b data-i18n="Context">Context</b> <span data-i18n="optional, any language: a niggle, a question, what's going on">optional, any language: a niggle, a question, what's going on</span>
+      <textarea id="gNote" maxlength="300" rows="3"></textarea></label>
     <div id="gHr">
       <div class="fgrid" style="margin-top:10px">
         <label><b data-i18n="Max HR">Max HR</b> <span>bpm</span><input id="gMax" inputmode="numeric" maxlength="3" placeholder="186"></label>

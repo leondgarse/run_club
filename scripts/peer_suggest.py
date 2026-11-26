@@ -26,7 +26,7 @@ import urllib.request
 SITE = "https://run-club-b9w.pages.dev"
 PEOPLE = ["TJH", "SJH"]
 CALLS = {"rest", "easy", "planned", "quality", "gym", "cross"}
-LIMITS = {"headline": 80, "session": 160, "why": 300, "next": 200, "yesterday": 220, "science": 320, "club": 200, "win": 200}
+LIMITS = {"headline": 80, "session": 160, "why": 300, "next": 200, "yesterday": 220, "science": 320, "club": 200, "win": 200, "reply": 300}
 
 
 def fetch(person, today):
@@ -43,7 +43,7 @@ cm, W) and abbreviation (VDOT, HR, E/M/T/I/R paces, TT, RDL) exactly as written.
 Reply with ONLY the JSON object.
 
 """
-ZH_KEYS = ["headline", "session", "why", "next", "yesterday", "win", "science", "club", "form", "numbers", "prehab"]
+ZH_KEYS = ["headline", "session", "why", "next", "yesterday", "reply", "win", "science", "club", "form", "numbers", "prehab"]
 
 
 def translate(s):
@@ -230,6 +230,8 @@ def main():
                 print(f"  {person}: nothing logged recently, skipped")
                 continue
             s = clean(ask_claude(ctx["prompt"]), today)
+            if not ctx.get("note"):
+                s.pop("reply", None)  # only the day a note is new
             if not ctx.get("wins"):
                 s.pop("win", None)  # praise only for a computed first/best
             miss = off_target(s["plan_change"], ctx.get("fill")) if s.get("plan_change") else None
