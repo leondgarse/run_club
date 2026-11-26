@@ -49,7 +49,7 @@ export const ZH = {
   "Your plan, rebuilt": "为你重做的计划", "5K goal {t}": "5K 目标 {t}",
   "Replaces these weeks of the plan; days without a session are rest. Paces are computed from your own runs.": "替换这几周的计划；没有训练的日子为休息。配速根据你自己的跑步数据计算。",
   "Dismiss the rebuilt plan?": "放弃这份重做的计划吗？",
-  "Club": "跑团",
+  "Club": "跑团", "Well done": "做得好", "Gym": "力量训练",
   "Charts": "图表",
   "Table": "表格",
   "Aerobic efficiency · easy runs": "有氧效率 · 轻松跑",

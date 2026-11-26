@@ -26,7 +26,7 @@ import urllib.request
 SITE = "https://run-club-b9w.pages.dev"
 PEOPLE = ["TJH", "SJH"]
 CALLS = {"rest", "easy", "planned", "quality", "gym", "cross"}
-LIMITS = {"headline": 80, "session": 160, "why": 300, "next": 200, "yesterday": 220, "science": 320, "club": 200}
+LIMITS = {"headline": 80, "session": 160, "why": 300, "next": 200, "yesterday": 220, "science": 320, "club": 200, "win": 200}
 
 
 def fetch(person, today):
@@ -43,7 +43,7 @@ cm, W) and abbreviation (VDOT, HR, E/M/T/I/R paces, TT, RDL) exactly as written.
 Reply with ONLY the JSON object.
 
 """
-ZH_KEYS = ["headline", "session", "why", "next", "yesterday", "science", "club", "form", "numbers", "prehab"]
+ZH_KEYS = ["headline", "session", "why", "next", "yesterday", "win", "science", "club", "form", "numbers", "prehab"]
 
 
 def translate(s):
@@ -163,6 +163,33 @@ def plan_change(c, today):
     return {"start": start.isoformat(), "end": end.isoformat(), "why": why, "sessions": sorted(out, key=lambda x: x["date"])}
 
 
+KM = re.compile(r"(\d+(?:\.\d+)?)\s*km\b", re.I)
+REPS = re.compile(r"(\d+)\s*[×x]\s*(\d+(?:\.\d+)?)\s*(m|km)\b", re.I)
+
+
+def session_km(title):
+    """Rough km of a session title, as sessionKm in lib/week.js."""
+    reps = REPS.findall(title)
+    km = sum(int(n) * float(d) / (1000 if u.lower() == "m" else 1) for n, d, u in reps)
+    parts = [float(x) for x in KM.findall(REPS.sub("", title))]
+    km += (parts[0] if parts[0] >= sum(parts[1:]) else sum(parts)) if parts else 0
+    return km + (3 if reps else 0)
+
+
+def off_target(pc, fill):
+    """Why a drafted week (SJH's empty next week) misses the computed targets from /api/today, or None."""
+    if not fill or pc["start"] != fill["start"]:
+        return None
+    runs = [x for x in pc["sessions"] if x["kind"] not in ("Strength", "Cross", "Rest")]
+    total = sum(session_km(x["title"]) for x in runs)
+    long = max([session_km(x["title"]) for x in runs if "Long" in x["kind"]] or [0])
+    if abs(total - fill["km"]) > 3:
+        return f"{total:g} km vs the computed {fill['km']} km"
+    if fill.get("long") and abs(long - fill["long"]) > 1:
+        return f"long run {long:g} km vs the computed {fill['long']} km"
+    return None
+
+
 def clean(r, today):
     if r.get("call") not in CALLS or not isinstance(r.get("headline"), str):
         raise ValueError(f"bad reply: {r!r}"[:300])
@@ -203,6 +230,12 @@ def main():
                 print(f"  {person}: nothing logged recently, skipped")
                 continue
             s = clean(ask_claude(ctx["prompt"]), today)
+            if not ctx.get("wins"):
+                s.pop("win", None)  # praise only for a computed first/best
+            miss = off_target(s["plan_change"], ctx.get("fill")) if s.get("plan_change") else None
+            if miss:
+                print(f"    plan_change dropped: {miss}", file=sys.stderr)
+                s.pop("plan_change")
             if ctx.get("form"):
                 s["form"] = ctx["form"]
             if ctx.get("numbers"):

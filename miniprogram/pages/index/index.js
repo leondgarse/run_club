@@ -188,6 +188,7 @@ function cardVM(s, color, mute) {
     by: s.by === "claude" ? tr("by Claude · {t}", { t: s.at || "9:00" }) : "",
     call: tr(CALL_LABEL[s.call] || s.call), yesterday: s.yesterday || "", headline: s.headline, session: s.session || "",
     why: s.why || "", form: s.form || "", science: s.science || "", club: s.club || "", prehab: s.prehab || [], numbers: s.numbers || [],
+    win: s.win || "", gym: s.gym?.items?.length ? { title: [tr("Gym"), s.gym.title].filter(Boolean).join(" · "), items: s.gym.items, note: s.gym.note || "" } : null,
     next: s.next ? `${tr("Next:")} ${s.next}` : "",
   };
 }
@@ -520,7 +521,7 @@ function boardVM() {
 const L = () => ({
   section: { training: tr("Training calendar"), minutes: tr("Minutes per week"), log: tr("My log") },
   addAct: tr("+ Add activity"), adjusted: tr("Adjusted"), revert: tr("Revert"), missed: tr("Missed"),
-  yesterday: tr("Yesterday"), form: tr("Form"), science: tr("Why it works"), club: tr("Club"), prehab: tr("Prehab · 2×/week, ~15 min"),
+  yesterday: tr("Yesterday"), win: tr("Well done"), form: tr("Form"), science: tr("Why it works"), club: tr("Club"), prehab: tr("Prehab · 2×/week, ~15 min"),
   prehabNote: tr("From recurring form issues in the logged runs. After easy runs or on rest days; stop if anything hurts."),
   numbers: tr("Numbers"),
   numbersNote: tr("VDOT and paces: Jack Daniels' formula. Easy ceiling: 79% of max HR, or 74% of HR reserve when a resting HR is set."),

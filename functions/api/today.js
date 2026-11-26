@@ -6,12 +6,13 @@
 // WGW doesn't use this: their suggestion comes from Garmin via ../../daily.sh (public/wgw.json).
 import { DATE, HttpError, fromQuery, handle, json, key, refreshInfo } from "../../lib/shared.js";
 import { CHANGEABLE, CHANGE_KINDS, FILL_ONLY, planFor as basePlanFor, weekIsEmpty } from "../../public/plans.js";
-import { DAY, describeWeek, mmss, sec } from "../../lib/week.js";
+import { DAY, describeWeek, mmss, sec, sessionKm } from "../../lib/week.js";
 import { formCheck, formFlags } from "../../lib/form.js";
 import { sportsScience } from "../../lib/science.js";
 import { coachMetrics, describeMetrics } from "../../lib/metrics.js";
 import { RULES, untrusted } from "../../lib/rules.js";
-import { goalContext } from "../../lib/goal.js";
+import { draftTargets, goalContext } from "../../lib/goal.js";
+import { wins as findWins } from "../../lib/wins.js";
 import { CLUB_RULES, clubContext } from "../../lib/club.js";
 
 const WINDOW_DAYS = 21;
@@ -34,12 +35,15 @@ the changes for next week. If it fits as written, null.
 
 `;
 // SJH's weeks come from their own app; when next week has none yet, Claude drafts it (they can accept it).
-const fillRules = (mon, sun) => `NEXT WEEK HAS NO PLAN YET (${mon} to ${sun}). Draft it in "plan_change": start ${mon}, end ${sun},
-every session with its date. Build it like this week's plan from their own app (same kinds of sessions, rest days,
-strength days, distances in km, minutes in "meta"), moved on by the TARGET phase and the recent load: in a build phase
-add about 5-10% volume; in a taper or race week cut it. Kinds must be one of the list below; put levels/minutes in
-"meta" (e.g. "L2 · 36 min"). Respect the easy HR ceiling in easy-run metas. "why" says what changed vs this week.
-
+const fillRules = (mon, sun, targets, earlier) => `NEXT WEEK HAS NO PLAN YET (${mon} to ${sun}). Draft it in "plan_change": start ${mon}, end ${sun},
+every session with its date. Build it like this week's plan (same kinds of sessions, rest days, strength days,
+distances in km, minutes in "meta"). Kinds must be one of the list below; put levels/minutes in "meta"
+(e.g. "L2 · 36 min"). Respect the easy HR ceiling in easy-run metas. "why" says what changed vs this week.
+${targets ? targets.text + "\n" : "In a build phase add about 5-10% volume; in a taper or race week cut it.\n"}${earlier ? `YOUR EARLIER DRAFT of this week (${earlier.date}, not accepted yet): ${JSON.stringify(earlier.sessions)}
+It is rewritten every morning until accepted, so keep it AS IT IS (same sessions, same km) unless it misses the
+targets above or the logs since ${earlier.date} give a reason (missed or extra sessions, pain/illness notes); if you
+change it, "why" names the change and the reason.
+` : ""}
 `;
 
 const shift = (d, n) => new Date(Date.parse(d + "T00:00:00Z") + n * 864e5).toISOString().slice(0, 10);
@@ -94,7 +98,7 @@ async function build(env, src, wgwJson = null) {
   const from = shift(today, -WINDOW_DAYS);
   const yesterday = shift(today, -1);
   const longFrom = shift(today, -365); // a year, so max HR seen isn't lost; VDOT/drift use the last 120 days
-  const [acts, logs, cachedRes, prevRes, formRes, longActs, longLogs, goalRes, changeRes] = await env.DB.batch([
+  const [acts, logs, cachedRes, prevRes, formRes, longActs, longLogs, goalRes, changeRes, draftRes] = await env.DB.batch([
     env.DB.prepare("SELECT * FROM activities WHERE person=?1 AND date BETWEEN ?2 AND ?3 ORDER BY date").bind(person, from, today),
     env.DB.prepare("SELECT week, item, km, duration, pace, hr, note, updated_at FROM progress WHERE person=?1 AND week BETWEEN ?2 AND ?3")
       .bind(person, mondayOf(from), week),
@@ -108,6 +112,10 @@ async function build(env, src, wgwJson = null) {
     env.DB.prepare("SELECT text, date, updated_at, max_hr, rest_hr FROM goals WHERE person=?1").bind(person),
     env.DB.prepare("SELECT week, data FROM plan_changes WHERE person=?1 AND week BETWEEN ?2 AND ?3")
       .bind(person, mondayOf(longFrom), shift(week, 7)),
+    // The newest earlier draft of next week (SJH's fill), so today's draft keeps it unless something changed.
+    env.DB.prepare("SELECT date, json_extract(data, '$.plan_change.sessions') AS sessions FROM suggestions WHERE person=?1 " +
+      "AND date BETWEEN ?2 AND ?3 AND json_extract(data, '$.plan_change.start')=?4 ORDER BY date DESC LIMIT 1")
+      .bind(person, week, yesterday, shift(week, 7)),
   ]);
   // Accepted plan changes (TJH) apply everywhere the plan is read below.
   const changes = {};
@@ -180,10 +188,28 @@ async function build(env, src, wgwJson = null) {
   const target = goalContext(goal, today, sessions.filter((a) => a.type === "run"));
 
   const club = await clubContext(env, person, today, wgwJson);
-  // Plan changes: TJH/WGW any time it's needed; SJH only to fill a next week that has no plan yet.
-  const nextMon = shift(week, 7), fill = FILL_ONLY.has(person) && weekIsEmpty(person, nextMon);
+  // Plan changes: TJH/WGW any time it's needed; SJH only to fill a next week that has no plan yet (and none accepted).
+  const nextMon = shift(week, 7), fill = FILL_ONLY.has(person) && weekIsEmpty(person, nextMon) && !changes[`${person}|${nextMon}`];
   const canChange = CHANGEABLE.has(person) && (!FILL_ONLY.has(person) || fill);
-  const changeRules = !canChange ? "" : fill ? fillRules(nextMon, shift(nextMon, 6)) : PLAN_CHANGE_RULES;
+  let targets = null, earlier = null;
+  if (fill) {
+    const planned = (w) => {
+      const runs = (planFor(person, w).items || []).filter((i) => !i.rest && !/strength|cross/i.test(i.kind));
+      return { km: runs.reduce((a, i) => a + sessionKm(i), 0), long: Math.max(0, ...runs.filter((i) => /long/i.test(i.kind)).map(sessionKm)) };
+    };
+    targets = draftTargets([shift(week, -14), shift(week, -7), week].map(planned), goal, nextMon);
+    const d = draftRes.results[0];
+    try { if (d?.sessions) earlier = { date: d.date, sessions: JSON.parse(d.sessions) }; } catch {}
+  }
+  const changeRules = !canChange ? "" : fill ? fillRules(nextMon, shift(nextMon, 6), targets, earlier) : PLAN_CHANGE_RULES;
+  const winList = findWins(sessions, today);
+  const winText = winList.length ? `WINS (computed: firsts and bests against every run they logged before; correct):
+${winList.map((w) => "- " + w).join("\n")}
+Put the most meaningful one in "win": the number, what it beat, and what it shows about their progress, warm and
+specific (e.g. "173 spm, your first run over 170: the quicker steps from the cue are sticking."). A win doesn't cancel
+a concern: say the concern in "why" as usual, but don't open "yesterday" by criticising a run that set a win.
+
+` : "";
   const prompt = `You are a careful running coach writing TODAY's suggestion for an amateur runner (${person}).
 Today is ${today} (${DAY[todayIdx]}).${paces ? `\nTheir target paces: ${paces}.` : ""}
 TODAY'S PLAN (${DAY[todayIdx]}): ${dayPlan(today)}
@@ -246,7 +272,7 @@ In "yesterday", comment in 1-2 short sentences on how yesterday went against you
 was no suggestion): followed, swapped, overdone, skipped? Use the logged numbers. If nothing was planned, suggested
 or logged yesterday, use null.
 
-${changeRules}${club ? `${club}
+${winText}${changeRules}${club ? `${club}
 
 ${CLUB_RULES}
 
@@ -267,17 +293,20 @@ Reply with ONLY one JSON object:
  "next": "<max 140 chars, tomorrow, with its key target>",
  "yesterday": "<max 160 chars, how yesterday went vs the suggestion/plan, no advice, or null>",
  "science": "<max 260 chars, the physiology/biomechanics behind today's advice: name the tissue or system and the mechanism>",
- "club": "<max 160 chars, one thing to learn from a clubmate (see CLUB), or null>"${canChange ? `,
+ "club": "<max 160 chars, one thing to learn from a clubmate (see CLUB), or null>",
+ "win": ${winList.length ? '"<max 160 chars, the win from WINS>"' : "null"}${canChange ? `,
  "plan_change": null or {"start": "YYYY-MM-DD", "end": "YYYY-MM-DD", "why": "<max 160 chars>", "sessions": [{"date": "YYYY-MM-DD", "kind": "<one of: ${CHANGE_KIND_LIST}>", "title": "<max 50 chars, e.g. E 6 km + 4 strides>", "meta": "<max 40 chars or empty>"}]}` : ""}}`;
 
-  return { ...base, prompt, form: flags?.text || null, numbers: numbers.card, prehab: science.prehab };
+  return { ...base, prompt, form: flags?.text || null, numbers: numbers.card, prehab: science.prehab, wins: winList,
+    fill: fill && targets ? { start: nextMon, km: targets.km, long: targets.long } : null };
 }
 
 export const onRequestGet = handle(async ({ request, env }) => {
   // WGW's public summary (a static asset) is the only WGW data another runner's prompt sees.
   const wgw = await env.ASSETS?.fetch(new URL("/wgw.json", request.url)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const b = await build(env, fromQuery(request), wgw);
-  return json({ person: b.person, today: b.today, dataAt: b.dataAt, prompt: b.prompt, form: b.form || null, numbers: b.numbers || null, prehab: b.prehab || [] });
+  return json({ person: b.person, today: b.today, dataAt: b.dataAt, prompt: b.prompt, form: b.form || null, numbers: b.numbers || null, prehab: b.prehab || [],
+    wins: b.wins || [], fill: b.fill || null });
 });
 
 export const onRequestPost = handle(async ({ request, env }) => {

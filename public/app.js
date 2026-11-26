@@ -396,6 +396,13 @@ async function loadWgw() {
   } catch {}
 }
 
+/** WGW's next gym session: { title, items: ["Deadlift 4×8, ≤100 kg, 2 in reserve", ...], note }. */
+function gymBlock(g) {
+  if (!g?.items?.length) return "";
+  return `<div class="sgym"><b>${tr("Gym")}${g.title ? ` · ${esc(g.title)}` : ""}</b>
+    <ul>${g.items.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>${g.note ? `<div class="smute">${esc(g.note)}</div>` : ""}</div>`;
+}
+
 function renderSuggestion(color) {
   const s = localized(state.wgw?.suggestion);
   const today = iso(new Date());
@@ -407,9 +414,12 @@ function renderSuggestion(color) {
   return `<div class="sugg" style="--c:${c}">
     <div class="shead"><span>${tr("Today")}</span><b class="call">${esc(tr(CALL_LABEL[s.call] || s.call))}</b></div>
     ${s.yesterday ? `<p class="syest"><b>${tr("Yesterday")}</b> ${esc(s.yesterday)}</p>` : ""}
+    ${s.win ? `<p class="swin"><b>${tr("Well done")}</b> ${esc(s.win)}</p>` : ""}
     <div class="stitle">${esc(s.headline)}</div>
     ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
     ${s.why ? `<p>${esc(s.why)}</p>` : ""}
+    ${gymBlock(s.gym)}
+    ${s.science ? `<p class="ssci"><b>${tr("Why it works")}</b> ${esc(s.science)}</p>` : ""}
     ${s.club ? `<p class="sclub"><b>${tr("Club")}</b> ${esc(s.club)}</p>` : ""}
     ${s.next ? `<p class="smute">${tr("Tomorrow:")} ${esc(s.next)}</p>` : ""}
     ${proposalBox("WGW", state.wgw.suggestion)}
@@ -544,6 +554,7 @@ function suggestionCard(s, color, mute) {
   return `<div class="sugg" style="--c:${CALL_COLOR[s.call] || color}">
     <div class="shead"><span>${tr("Today")}${by ? `<small class="sby">${by}</small>` : ""}</span><b class="call">${esc(tr(CALL_LABEL[s.call] || s.call))}</b></div>
     ${s.yesterday ? `<p class="syest"><b>${tr("Yesterday")}</b> ${esc(s.yesterday)}</p>` : ""}
+    ${s.win ? `<p class="swin"><b>${tr("Well done")}</b> ${esc(s.win)}</p>` : ""}
     <div class="stitle">${esc(s.headline)}</div>
     ${s.session ? `<div class="ssess">${esc(s.session)}</div>` : ""}
     ${s.why ? `<p>${esc(s.why)}</p>` : ""}

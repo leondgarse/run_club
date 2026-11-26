@@ -8,9 +8,15 @@
     <view wx:if="{{c.mute}}" class="smute p">{{c.mute}}</view>
     <block wx:else>
       <view wx:if="{{c.yesterday}}" class="syest"><text class="b">{{L.yesterday}}</text> {{c.yesterday}}</view>
+      <view wx:if="{{c.win}}" class="p swin"><text class="b">{{L.win}}</text> {{c.win}}</view>
       <view class="stitle">{{c.headline}}</view>
       <view wx:if="{{c.session}}" class="ssess">{{c.session}}</view>
       <view wx:if="{{c.why}}" class="p">{{c.why}}</view>
+      <view wx:if="{{c.gym}}" class="sgym">
+        <view class="b">{{c.gym.title}}</view>
+        <view wx:for="{{c.gym.items}}" wx:key="*this" class="li">• {{item}}</view>
+        <view wx:if="{{c.gym.note}}" class="smute small">{{c.gym.note}}</view>
+      </view>
       <view wx:if="{{c.form}}" class="p sform"><text class="b">{{L.form}}</text> {{c.form}}</view>
       <view wx:if="{{c.science}}" class="p ssci"><text class="b">{{L.science}}</text> {{c.science}}</view>
       <view wx:if="{{c.club}}" class="p sclub"><text class="b">{{L.club}}</text> {{c.club}}</view>
