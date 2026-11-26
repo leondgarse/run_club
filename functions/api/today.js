@@ -196,7 +196,7 @@ Read it like their coach. If it mentions pain, a strain, a pull or an injury: wh
 jumps or long run; only pain-free easy running (stop if it changes the stride) or cross-training, plus gentle
 mobility; say plainly that a physio or doctor should look at it if it persists, worsens or swells; say what it means
 for the TARGET. It holds until a later note or logged runs show it settled. No diagnosis, no medication.
-${answer ? `Answer the note in "reply": its question, or what to do about the problem, specific and kind, using their data.` : `It was answered already: no "reply".`}
+${answer ? `Answer the note in "reply": its question, or what to do about the problem, specific and kind, using their data. Write it in English like every field, even if the note is in Chinese (the 中文 copy is made automatically).` : `It was answered already: no "reply".`}
 
 `;
   // Plan changes: TJH/WGW any time it's needed; SJH only to fill a next week that has no plan yet (and none accepted),
